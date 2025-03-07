@@ -298,6 +298,10 @@ warpButton.addEventListener('click', function () {
     let artworkMat = cv.imread(artworkCanvas);
     let artworkWarped = new cv.Mat();
 
+    // Split the artwork into channels (including alpha)
+    let channels = new cv.MatVector();
+    cv.split(artworkMat, channels);
+
     // Calculate artwork position in the warped space
     const artworkX = artworkMesh ? artworkMesh.position.x + realWidth / 2 : realWidth / 2;
     const artworkY = artworkMesh ? -artworkMesh.position.y + realHeight / 2 : realHeight / 2;
@@ -321,13 +325,30 @@ warpButton.addEventListener('click', function () {
       new cv.Size(imageCanvas.width, imageCanvas.height),
       cv.INTER_LINEAR,
       cv.BORDER_CONSTANT,
-      new cv.Scalar()
+      new cv.Scalar(0, 0, 0, 0)  // Transparent background
     );
 
-    // Blend artwork with original image
-    cv.addWeighted(srcMat, 1, artworkWarped, 1, 0, srcMat);
+    // Split the warped result into channels
+    let warpedChannels = new cv.MatVector();
+    cv.split(artworkWarped, warpedChannels);
 
-    // Clean up artwork matrices
+    // Create a mask from the alpha channel
+    let mask = warpedChannels.get(3);  // Alpha channel
+    let maskInv = new cv.Mat();
+    cv.bitwise_not(mask, maskInv);
+
+    // Apply the mask to blend images
+    let tempMat = new cv.Mat();
+    srcMat.copyTo(tempMat);
+    artworkWarped.copyTo(tempMat, mask);
+    tempMat.copyTo(srcMat);
+
+    // Clean up
+    channels.delete();
+    warpedChannels.delete();
+    mask.delete();
+    maskInv.delete();
+    tempMat.delete();
     artworkMat.delete();
     artworkWarped.delete();
     artworkM.delete();
