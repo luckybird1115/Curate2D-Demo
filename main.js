@@ -137,7 +137,7 @@ drawButton.addEventListener('click', function () {
     ctx.font = '16px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText((index + 1).toString(), point.x + 8, point.y + 5);
+    ctx.fillText((index + 1).toString(), point.x + 10, point.y + 10);
 
     // Add point to srcPoints array
     srcPoints.push(point);
@@ -237,8 +237,8 @@ function redrawCanvas() {
       ctx.arc(point.x, point.y, 5, 0, 2 * Math.PI);
       ctx.fill();
 
-      // Draw the number label
-      ctx.fillStyle = 'yellow';
+      // Draw the number label - changed color to blue and position follows point
+      ctx.fillStyle = 'blue';
       ctx.font = '16px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -258,20 +258,15 @@ warpButton.addEventListener('click', function () {
     return;
   }
 
-  // We get real size from the user
+  // Get real size from the user
   const realWidth = parseFloat(realWidthInput.value);
   const realHeight = parseFloat(realHeightInput.value);
 
-  // Perform perspective transform in OpenCV.js
-  // 1) Create OpenCV.js Mats
+  // 1) Transform the background image first
   let srcMat = cv.imread(imageCanvas);
   let dstMat = new cv.Mat();
   let dsize = new cv.Size(realWidth, realHeight);
 
-  // 2) Set src/dst point data (in pixel coords).
-  // We want the warped output to have a dimension of realWidth x realHeight (in pixels).
-  // In practice, you might map them to some standard pixel dimension, e.g. 1000x500, 
-  // or scale by some factor. For demonstration, let's do 1:1 pixel to "units."
   let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
     srcPoints[0].x, srcPoints[0].y,
     srcPoints[1].x, srcPoints[1].y,
@@ -279,7 +274,6 @@ warpButton.addEventListener('click', function () {
     srcPoints[3].x, srcPoints[3].y
   ]);
 
-  // We'll map to these corners in the warped image:
   let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
     0, 0,
     realWidth, 0,
@@ -287,10 +281,10 @@ warpButton.addEventListener('click', function () {
     0, realHeight
   ]);
 
-  // 3) Compute perspective transform
+  // Compute perspective transform matrix
   let M = cv.getPerspectiveTransform(srcTri, dstTri);
 
-  // 4) Warp perspective
+  // Warp background image
   cv.warpPerspective(
     srcMat, dstMat, M, dsize,
     cv.INTER_LINEAR,
@@ -298,9 +292,51 @@ warpButton.addEventListener('click', function () {
     new cv.Scalar()
   );
 
-  // Display result in #warpedCanvas
-  warpedCanvas.width = realWidth;
-  warpedCanvas.height = realHeight;
+  // 2) Transform the artwork if it's loaded
+  if (artworkLoaded) {
+    // Create Mat from artwork canvas
+    let artworkMat = cv.imread(artworkCanvas);
+    let artworkWarped = new cv.Mat();
+    
+    // Calculate artwork position in the warped space
+    const artworkX = artworkMesh ? artworkMesh.position.x + realWidth/2 : realWidth/2;
+    const artworkY = artworkMesh ? -artworkMesh.position.y + realHeight/2 : realHeight/2;
+    
+    // Create transformation matrix for artwork
+    let artworkDstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      artworkX - (artworkCanvas.width/2), artworkY - (artworkCanvas.height/2),
+      artworkX + (artworkCanvas.width/2), artworkY - (artworkCanvas.height/2),
+      artworkX + (artworkCanvas.width/2), artworkY + (artworkCanvas.height/2),
+      artworkX - (artworkCanvas.width/2), artworkY + (artworkCanvas.height/2)
+    ]);
+    
+    // Get perspective transform for artwork
+    let artworkM = cv.getPerspectiveTransform(dstTri, srcTri);
+    
+    // Warp artwork
+    cv.warpPerspective(
+      artworkMat,
+      artworkWarped,
+      artworkM,
+      new cv.Size(imageCanvas.width, imageCanvas.height),
+      cv.INTER_LINEAR,
+      cv.BORDER_CONSTANT,
+      new cv.Scalar()
+    );
+    
+    // Blend artwork with original image
+    cv.addWeighted(srcMat, 1, artworkWarped, 1, 0, srcMat);
+    
+    // Clean up artwork matrices
+    artworkMat.delete();
+    artworkWarped.delete();
+    artworkM.delete();
+  }
+
+  // Display result in imageCanvas
+  cv.imshow(imageCanvas, srcMat);
+
+  // Display warped result in warpedCanvas
   cv.imshow(warpedCanvas, dstMat);
 
   // Free memory
@@ -310,11 +346,8 @@ warpButton.addEventListener('click', function () {
   dstTri.delete();
   M.delete();
 
-  // Then use three.js to display a plane of size (realWidth x realHeight)
-  // textured with the warped image
+  // Update three.js scene
   renderThreeScene(warpedCanvas, realWidth, realHeight);
-
-  // After renderThreeScene call, add the artwork plane
   if (artworkLoaded) {
     addArtworkToScene();
   }
@@ -463,6 +496,9 @@ function onMouseMove(event) {
     x: event.clientX,
     y: event.clientY
   };
+
+  // Update the artwork position on the image canvas
+  updateArtworkOnImageCanvas();
 }
 
 function onMouseUp() {
