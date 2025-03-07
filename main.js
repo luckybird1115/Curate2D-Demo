@@ -528,8 +528,6 @@ function onMouseMove(event) {
     y: event.clientY
   };
 
-  // Update the artwork position on the image canvas
-  updateArtworkOnImageCanvas();
 }
 
 function onMouseUp() {
