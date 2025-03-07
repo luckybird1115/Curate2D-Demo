@@ -55,16 +55,28 @@
 <body>
     <div id="mainWrapper">
         <div id="imageContainer">
-            <div id="info">
-                1) Load image
-                2) Click exactly 4 points (in order: top-left, top-right, bottom-right, bottom-left).
-                3) Enter your real-world rectangle size below and click "Warp & Show in 3D".
+            <div id="info" style="display: flex; flex-direction: column; gap: 10px;">
+                <div>
+                    1) Load image
+                </div>
+                <div>
+                    2) Click the Draw Button to add the initial rectangle
+                </div>
+                <div>
+                    3) Drag the end points to adjust the rectangle
+                </div>
+                <div>
+                    4) Enter your real-world rectangle size below and click "Warp & Show in 3D".
+                </div>
             </div>
             <input type="file" accept="image/*" id="imageLoader"><br><br>
 
             <!-- Original image canvas -->
             <canvas id="imageCanvas"></canvas>
+            <button id="drawButton">Draw Rectangle</button>
 
+            <input type="file" accept="image/*" id="artworkLoader"><br><br>
+            <canvas id="artworkCanvas"></canvas>
             <!-- Warped result canvas -->
             <canvas id="warpedCanvas"></canvas>
 
