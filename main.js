@@ -66,23 +66,23 @@ img.onload = function () {
 
 artworkImg.onload = function () {
   artworkLoaded = true;
-  
+
   // Calculate scale to fit within MAX_ARTWORK_DIMENSION while maintaining aspect ratio
   const scaleW = MAX_ARTWORK_DIMENSION / artworkImg.width;
   const scaleH = MAX_ARTWORK_DIMENSION / artworkImg.height;
   artworkScale = Math.min(scaleW, scaleH, 1.0); // Don't scale up, only down
-  
+
   // Set canvas size to scaled dimensions
   artworkCanvas.width = artworkImg.width * artworkScale;
   artworkCanvas.height = artworkImg.height * artworkScale;
-  
+
   // Clear and draw scaled image
   artworkCtx.clearRect(0, 0, artworkCanvas.width, artworkCanvas.height);
   artworkCtx.save();
   artworkCtx.scale(artworkScale, artworkScale);
   artworkCtx.drawImage(artworkImg, 0, 0);
   artworkCtx.restore();
-  
+
   // Add scale indicator text
   artworkCtx.fillStyle = 'yellow';
   artworkCtx.font = '14px Arial';
@@ -133,7 +133,7 @@ drawButton.addEventListener('click', function () {
     ctx.fill();
 
     // Draw the number label
-    ctx.fillStyle = 'yellow';
+    ctx.fillStyle = 'blue';
     ctx.font = '16px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -242,7 +242,7 @@ function redrawCanvas() {
       ctx.font = '16px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText((index + 1).toString(), point.x, point.y);
+      ctx.fillText((index + 1).toString(), point.x + 10, point.y + 10);
     });
   }
 }
@@ -297,22 +297,22 @@ warpButton.addEventListener('click', function () {
     // Create Mat from artwork canvas
     let artworkMat = cv.imread(artworkCanvas);
     let artworkWarped = new cv.Mat();
-    
+
     // Calculate artwork position in the warped space
-    const artworkX = artworkMesh ? artworkMesh.position.x + realWidth/2 : realWidth/2;
-    const artworkY = artworkMesh ? -artworkMesh.position.y + realHeight/2 : realHeight/2;
-    
+    const artworkX = artworkMesh ? artworkMesh.position.x + realWidth / 2 : realWidth / 2;
+    const artworkY = artworkMesh ? -artworkMesh.position.y + realHeight / 2 : realHeight / 2;
+
     // Create transformation matrix for artwork
     let artworkDstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-      artworkX - (artworkCanvas.width/2), artworkY - (artworkCanvas.height/2),
-      artworkX + (artworkCanvas.width/2), artworkY - (artworkCanvas.height/2),
-      artworkX + (artworkCanvas.width/2), artworkY + (artworkCanvas.height/2),
-      artworkX - (artworkCanvas.width/2), artworkY + (artworkCanvas.height/2)
+      artworkX - (artworkCanvas.width / 2), artworkY - (artworkCanvas.height / 2),
+      artworkX + (artworkCanvas.width / 2), artworkY - (artworkCanvas.height / 2),
+      artworkX + (artworkCanvas.width / 2), artworkY + (artworkCanvas.height / 2),
+      artworkX - (artworkCanvas.width / 2), artworkY + (artworkCanvas.height / 2)
     ]);
-    
+
     // Get perspective transform for artwork
     let artworkM = cv.getPerspectiveTransform(dstTri, srcTri);
-    
+
     // Warp artwork
     cv.warpPerspective(
       artworkMat,
@@ -323,10 +323,10 @@ warpButton.addEventListener('click', function () {
       cv.BORDER_CONSTANT,
       new cv.Scalar()
     );
-    
+
     // Blend artwork with original image
     cv.addWeighted(srcMat, 1, artworkWarped, 1, 0, srcMat);
-    
+
     // Clean up artwork matrices
     artworkMat.delete();
     artworkWarped.delete();
@@ -408,6 +408,7 @@ function renderThreeScene(warpCanvas, realW, realH) {
   const geometry = new THREE.PlaneGeometry(realW, realH);
   const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
   const bgMesh = new THREE.Mesh(geometry, material);
+  bgMesh.userData.name = "background";
 
   // Adjust mesh position so it's centered in the scene
   bgMesh.position.set(0, 0, 0);
@@ -425,11 +426,9 @@ function animate() {
 
 // Add these new functions
 function addArtworkToScene() {
-  // Create texture from the artworkCanvas
   const artworkTexture = new THREE.Texture(artworkCanvas);
   artworkTexture.needsUpdate = true;
 
-  // Create plane geometry for artwork
   const geometry = new THREE.PlaneGeometry(
     artworkCanvas.width,
     artworkCanvas.height
@@ -446,14 +445,25 @@ function addArtworkToScene() {
   }
 
   artworkMesh = new THREE.Mesh(geometry, material);
-  artworkMesh.position.set(0, 0, 1); // Position slightly above the warped image
+
+  // Get the background mesh dimensions
+  const bgMesh = scene.children.find(child => child instanceof THREE.Mesh && child.userData.name === "background");
+  const bgWidth = bgMesh.geometry.parameters.width;
+  const bgHeight = bgMesh.geometry.parameters.height;
+
+  // Calculate position to place artwork at top-left
+  // Offset by half the artwork dimensions because the mesh pivot is at its center
+  const xPos = -bgWidth / 2 + artworkCanvas.width;
+  const yPos = bgHeight / 2 - artworkCanvas.height / 2;
+
+  artworkMesh.position.set(xPos, yPos, 1);
   scene.add(artworkMesh);
 }
 
 // Add these event listeners for dragging
 function onMouseDown(event) {
   if (!artworkMesh) return;
-  
+
   isDragging3D = true;
   previousMousePosition = {
     x: event.clientX,
@@ -477,7 +487,7 @@ function onMouseMove(event) {
   // Get the dimensions of both meshes
   const bgGeometry = scene.children.find(child => child !== artworkMesh && child instanceof THREE.Mesh).geometry;
   const artworkGeometry = artworkMesh.geometry;
-  
+
   // Calculate the bounds
   const bgWidth = bgGeometry.parameters.width;
   const bgHeight = bgGeometry.parameters.height;
