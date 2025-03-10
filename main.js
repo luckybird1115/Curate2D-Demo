@@ -19,6 +19,7 @@ const warpCtx = warpedCanvas.getContext('2d');
 let img = new Image();
 let artworkImg = new Image();
 let imgLoaded = false;
+let artworkLoaded = false;
 let clickCount = 0;
 const srcPoints = []; // will store [{x, y}, ...]
 
@@ -31,6 +32,10 @@ const MAX_ARTWORK_DIMENSION = 200; // Maximum width or height in pixels
 let artworkMesh = null;
 let isDragging3D = false;
 let previousMousePosition = { x: 0, y: 0 };
+let isArtworkDragging = false;
+let artworkPosition = { x: 0, y: 0 };
+let lastMousePos = { x: 0, y: 0 };
+let warpedArtwork = null; // To store the warped artwork image
 
 // --- Load the image when user selects it ---
 imageLoader.addEventListener('change', function (e) {
@@ -153,7 +158,16 @@ imageCanvas.addEventListener('mousedown', function (evt) {
   const x = evt.clientX - rect.left;
   const y = evt.clientY - rect.top;
 
-  // Check if we clicked near any existing point
+  // First check if we're clicking on the artwork
+  if (artworkPosition && isPointInArtwork(x, y)) {
+    console.log("Clicking on artwork");
+    isArtworkDragging = true;
+    lastMousePos = { x, y };
+    imageCanvas.style.cursor = 'grabbing';
+    return;
+  }
+
+  // If not clicking artwork, check for corner point dragging (existing code)
   for (let i = 0; i < srcPoints.length; i++) {
     const point = srcPoints[i];
     const distance = Math.sqrt((x - point.x) ** 2 + (y - point.y) ** 2);
@@ -172,6 +186,19 @@ imageCanvas.addEventListener('mousemove', function (evt) {
   const rect = imageCanvas.getBoundingClientRect();
   const x = evt.clientX - rect.left;
   const y = evt.clientY - rect.top;
+
+  // Handle artwork dragging
+  if (isArtworkDragging) {
+    const dx = x - lastMousePos.x;
+    const dy = y - lastMousePos.y;
+    
+    artworkPosition.x += dx;
+    artworkPosition.y += dy;
+    
+    lastMousePos = { x, y };
+    redrawCanvas();
+    return;
+  }
 
   // Check if we're hovering over any point
   let isOverPoint = false;
@@ -206,17 +233,21 @@ imageCanvas.addEventListener('mousemove', function (evt) {
 // Update mouseup to reset cursor
 imageCanvas.addEventListener('mouseup', function () {
   isDragging = false;
+  isArtworkDragging = false;
   selectedPoint = null;
   imageCanvas.style.cursor = 'default';
 });
 
 // Add this new function to redraw the canvas
 function redrawCanvas() {
-  // Clear canvas
+  // Clear canvas and redraw image
   ctx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
-
-  // Redraw image
   ctx.drawImage(img, 0, 0);
+
+  // Draw the warped artwork if it exists
+  if (artworkLoaded && warpedArtwork && artworkPosition) {
+    ctx.drawImage(warpedArtwork, artworkPosition.x, artworkPosition.y);
+  }
 
   // Draw rectangle
   if (srcPoints.length === 4) {
@@ -343,6 +374,24 @@ warpButton.addEventListener('click', function () {
     artworkWarped.copyTo(tempMat, mask);
     tempMat.copyTo(srcMat);
 
+    // Create a temporary canvas to store the warped artwork
+    let tempCanvas = document.createElement('canvas');
+    tempCanvas.width = imageCanvas.width;
+    tempCanvas.height = imageCanvas.height;
+    
+    // Show the warped artwork on the temporary canvas
+    cv.imshow(tempCanvas, artworkWarped);
+
+    // Store the warped artwork as an image
+    warpedArtwork = new Image();
+    warpedArtwork.src = tempCanvas.toDataURL();
+
+    // Initialize artwork position
+    artworkPosition = {
+        x: 0,
+        y: 0
+    };
+
     // Clean up
     channels.delete();
     warpedChannels.delete();
@@ -371,6 +420,14 @@ warpButton.addEventListener('click', function () {
   renderThreeScene(warpedCanvas, realWidth, realHeight);
   if (artworkLoaded) {
     addArtworkToScene();
+  }
+
+  // Initialize artwork position after warping
+  if (artworkLoaded) {
+    artworkPosition = {
+      x: 0,
+      y: 0
+    };
   }
 });
 
@@ -532,4 +589,14 @@ function onMouseMove(event) {
 
 function onMouseUp() {
   isDragging3D = false;
+}
+
+// Add this helper function to check if a point is within the artwork bounds
+function isPointInArtwork(x, y) {
+  if (!artworkPosition || !warpedArtwork) return false;
+  
+  return x >= artworkPosition.x && 
+         x <= artworkPosition.x + warpedArtwork.width && 
+         y >= artworkPosition.y && 
+         y <= artworkPosition.y + warpedArtwork.height;
 }
