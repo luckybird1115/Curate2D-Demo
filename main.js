@@ -329,26 +329,58 @@ warpButton.addEventListener('click', function () {
     let artworkMat = cv.imread(artworkCanvas);
     let artworkWarped = new cv.Mat();
 
-    // Split the artwork into channels (including alpha)
-    let channels = new cv.MatVector();
-    cv.split(artworkMat, channels);
+    // Get real dimensions from inputs
+    const realWidth = parseFloat(realWidthInput.value);
+    const realHeight = parseFloat(realHeightInput.value);
 
-    // Calculate artwork position in the warped space
-    const artworkX = artworkMesh ? artworkMesh.position.x + realWidth / 2 : realWidth / 2;
-    const artworkY = artworkMesh ? -artworkMesh.position.y + realHeight / 2 : realHeight / 2;
+    // Get original artwork dimensions (before any scaling)
+    const originalArtworkWidth = artworkImg.width;  // Use original image width
+    const originalArtworkHeight = artworkImg.height; // Use original image height
 
-    // Create transformation matrix for artwork
+    // Calculate the real-world scale factor
+    // This will maintain the artwork's real-world proportions
+    const realScaleX = realWidth / originalArtworkWidth;
+    const realScaleY = realHeight / originalArtworkHeight;
+    const scaleFactor = Math.min(realScaleX, realScaleY);
+
+    // Add a safety factor to ensure the artwork fits within the rectangle
+    // Adjust this value (0.9 = 90%) if needed
+    const safetyFactor = 0.9;
+    const finalScaleFactor = scaleFactor * safetyFactor;
+
+    console.log('Original artwork dimensions:', originalArtworkWidth, 'x', originalArtworkHeight);
+    console.log('Real dimensions:', realWidth, 'x', realHeight);
+    console.log('Scale factor:', finalScaleFactor);
+
+    // Calculate center point of the rectangle
+    const centerX = (srcPoints[0].x + srcPoints[1].x + srcPoints[2].x + srcPoints[3].x) / 4;
+    const centerY = (srcPoints[0].y + srcPoints[1].y + srcPoints[2].y + srcPoints[3].y) / 4;
+
+    // Calculate scaled corner points using the computed scale factor
+    const scaledPoints = srcPoints.map(point => ({
+      x: centerX + (point.x - centerX) * finalScaleFactor,
+      y: centerY + (point.y - centerY) * finalScaleFactor
+    }));
+
+    // Use scaled points for the perspective transform
+    let artworkSrcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      0, 0,
+      artworkCanvas.width, 0,
+      artworkCanvas.width, artworkCanvas.height,
+      0, artworkCanvas.height
+    ]);
+
     let artworkDstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-      artworkX - (artworkCanvas.width / 2), artworkY - (artworkCanvas.height / 2),
-      artworkX + (artworkCanvas.width / 2), artworkY - (artworkCanvas.height / 2),
-      artworkX + (artworkCanvas.width / 2), artworkY + (artworkCanvas.height / 2),
-      artworkX - (artworkCanvas.width / 2), artworkY + (artworkCanvas.height / 2)
+      scaledPoints[0].x, scaledPoints[0].y,
+      scaledPoints[1].x, scaledPoints[1].y,
+      scaledPoints[2].x, scaledPoints[2].y,
+      scaledPoints[3].x, scaledPoints[3].y
     ]);
 
     // Get perspective transform for artwork
-    let artworkM = cv.getPerspectiveTransform(dstTri, srcTri);
+    let artworkM = cv.getPerspectiveTransform(artworkSrcTri, artworkDstTri);
 
-    // Warp artwork
+    // Warp artwork to match the perspective
     cv.warpPerspective(
       artworkMat,
       artworkWarped,
@@ -374,26 +406,20 @@ warpButton.addEventListener('click', function () {
     artworkWarped.copyTo(tempMat, mask);
     tempMat.copyTo(srcMat);
 
-    // Create a temporary canvas to store the warped artwork
+    // Store the warped artwork
     let tempCanvas = document.createElement('canvas');
     tempCanvas.width = imageCanvas.width;
     tempCanvas.height = imageCanvas.height;
-    
-    // Show the warped artwork on the temporary canvas
     cv.imshow(tempCanvas, artworkWarped);
-
-    // Store the warped artwork as an image
     warpedArtwork = new Image();
     warpedArtwork.src = tempCanvas.toDataURL();
 
-    // Initialize artwork position
-    artworkPosition = {
-        x: 0,
-        y: 0
-    };
+    // Initialize artwork position at (0,0) since it's already in correct perspective
+    artworkPosition = { x: 0, y: 0 };
 
     // Clean up
-    channels.delete();
+    artworkSrcTri.delete();
+    artworkDstTri.delete();
     warpedChannels.delete();
     mask.delete();
     maskInv.delete();
