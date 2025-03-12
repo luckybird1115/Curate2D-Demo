@@ -7,14 +7,14 @@ const drawButton = document.getElementById('drawButton');
 const artworkLoader = document.getElementById('artworkLoader');
 const artworkCanvas = document.getElementById('artworkCanvas');
 const imageCanvas = document.getElementById('imageCanvas');
-// const warpedCanvas = document.getElementById('warpedCanvas');
+const warpedCanvas = document.getElementById('warpedCanvas');
 const warpButton = document.getElementById('warpButton');
 const realWidthInput = document.getElementById('realWidth');
 const realHeightInput = document.getElementById('realHeight');
 
 const ctx = imageCanvas.getContext('2d');
 const artworkCtx = artworkCanvas.getContext('2d');
-// const warpCtx = warpedCanvas.getContext('2d');
+const warpCtx = warpedCanvas.getContext('2d');
 
 let img = new Image();
 let artworkImg = new Image();
@@ -108,8 +108,8 @@ drawButton.addEventListener('click', function () {
   const centerY = imageCanvas.height / 2;
 
   // Rectangle dimensions
-  const width = 300;
-  const height = 150;
+  const width = 500;
+  const height = 300;
 
   // Calculate corner points
   const points = [
@@ -407,7 +407,7 @@ warpButton.addEventListener('click', function () {
   cv.imshow(imageCanvas, srcMat);
 
   // Display warped result in warpedCanvas
-  // cv.imshow(warpedCanvas, dstMat);
+  cv.imshow(warpedCanvas, dstMat);
 
   // Free memory
   srcMat.delete();
@@ -417,10 +417,10 @@ warpButton.addEventListener('click', function () {
   M.delete();
 
   // Update three.js scene
-  // renderThreeScene(warpedCanvas, realWidth, realHeight);
-  // if (artworkLoaded) {
-  //   addArtworkToScene();
-  // }
+  renderThreeScene(warpedCanvas, realWidth, realHeight);
+  if (artworkLoaded) {
+    addArtworkToScene();
+  }
 
   // Initialize artwork position after warping
   if (artworkLoaded) {
