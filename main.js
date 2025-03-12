@@ -191,10 +191,10 @@ imageCanvas.addEventListener('mousemove', function (evt) {
   if (isArtworkDragging) {
     const dx = x - lastMousePos.x;
     const dy = y - lastMousePos.y;
-    
+
     artworkPosition.x += dx;
     artworkPosition.y += dy;
-    
+
     lastMousePos = { x, y };
     redrawCanvas();
     return;
@@ -295,12 +295,12 @@ warpButton.addEventListener('click', function () {
 
   // Calculate rectangle dimensions in pixels
   const rectangleWidth = Math.sqrt(
-      Math.pow(srcPoints[1].x - srcPoints[0].x, 2) + 
-      Math.pow(srcPoints[1].y - srcPoints[0].y, 2)
+    Math.pow(srcPoints[1].x - srcPoints[0].x, 2) +
+    Math.pow(srcPoints[1].y - srcPoints[0].y, 2)
   );
   const rectangleHeight = Math.sqrt(
-      Math.pow(srcPoints[3].x - srcPoints[0].x, 2) + 
-      Math.pow(srcPoints[3].y - srcPoints[0].y, 2)
+    Math.pow(srcPoints[3].x - srcPoints[0].x, 2) +
+    Math.pow(srcPoints[3].y - srcPoints[0].y, 2)
   );
 
   // Calculate pixels per meter for both dimensions
@@ -348,14 +348,20 @@ warpButton.addEventListener('click', function () {
 
     // Calculate the perspective at the top left corner
     // Get the vectors that define the perspective transformation
-    const rightEdgeVector = {
+    const topRightEdgeVector = {
       x: srcPoints[1].x - srcPoints[0].x,
       y: srcPoints[1].y - srcPoints[0].y
     };
-    const bottomEdgeVector = {
-      x: srcPoints[3].x - srcPoints[0].x,
-      y: srcPoints[3].y - srcPoints[0].y
+    const rightBottomEdgeVector = {
+      x: srcPoints[2].x - srcPoints[1].x,
+      y: srcPoints[2].y - srcPoints[1].y
     };
+    const bottomLeftEdgeVector = {
+      x: srcPoints[3].x - srcPoints[2].x,
+      y: srcPoints[3].y - srcPoints[2].y
+    };
+
+
 
     // Calculate the four corners for the warped artwork
     const artworkDestPoints = [
@@ -364,16 +370,16 @@ warpButton.addEventListener('click', function () {
         y: srcPoints[0].y
       },
       { // top-right
-        x: srcPoints[0].x + (rightEdgeVector.x * scaleFactorWidth),
-        y: srcPoints[0].y + (rightEdgeVector.y * scaleFactorWidth)
+        x: srcPoints[0].x + (topRightEdgeVector.x * scaleFactorWidth),
+        y: srcPoints[0].y + (topRightEdgeVector.y * scaleFactorWidth)
       },
       { // bottom-right
-        x: srcPoints[0].x + (rightEdgeVector.x * scaleFactorWidth) + (bottomEdgeVector.x * scaleFactorHeight),
-        y: srcPoints[0].y + (rightEdgeVector.y * scaleFactorWidth) + (bottomEdgeVector.y * scaleFactorHeight)
+        x: srcPoints[0].x + (topRightEdgeVector.x * scaleFactorWidth) + (rightBottomEdgeVector.x * scaleFactorHeight),
+        y: srcPoints[0].y + (topRightEdgeVector.y * scaleFactorWidth) + (rightBottomEdgeVector.y * scaleFactorHeight)
       },
       { // bottom-left
-        x: srcPoints[0].x + (bottomEdgeVector.x * scaleFactorHeight),
-        y: srcPoints[0].y + (bottomEdgeVector.y * scaleFactorHeight)
+        x: srcPoints[0].x + (topRightEdgeVector.x * scaleFactorWidth) + (rightBottomEdgeVector.x * scaleFactorHeight) + (bottomLeftEdgeVector.x * scaleFactorWidth),
+        y: srcPoints[0].y + (topRightEdgeVector.y * scaleFactorWidth) + (rightBottomEdgeVector.y * scaleFactorHeight) + (bottomLeftEdgeVector.y * scaleFactorWidth)
       }
     ];
 
@@ -410,13 +416,13 @@ warpButton.addEventListener('click', function () {
     let tempCanvas = document.createElement('canvas');
     tempCanvas.width = imageCanvas.width;
     tempCanvas.height = imageCanvas.height;
-    
+
     // Show the warped artwork on the temporary canvas
     cv.imshow(tempCanvas, artworkWarped);
 
     // Store the warped artwork as an image and set its initial position
     warpedArtwork = new Image();
-    warpedArtwork.onload = function() {
+    warpedArtwork.onload = function () {
       artworkPosition = { x: 0, y: 0 };
       redrawCanvas();
     };
@@ -613,9 +619,9 @@ function onMouseUp() {
 // Add this helper function to check if a point is within the artwork bounds
 function isPointInArtwork(x, y) {
   if (!artworkPosition || !warpedArtwork) return false;
-  
-  return x >= artworkPosition.x && 
-         x <= artworkPosition.x + warpedArtwork.width && 
-         y >= artworkPosition.y && 
-         y <= artworkPosition.y + warpedArtwork.height;
+
+  return x >= artworkPosition.x &&
+    x <= artworkPosition.x + warpedArtwork.width &&
+    y >= artworkPosition.y &&
+    y <= artworkPosition.y + warpedArtwork.height;
 }
