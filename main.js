@@ -329,24 +329,54 @@ warpButton.addEventListener('click', function () {
     let artworkMat = cv.imread(artworkCanvas);
     let artworkWarped = new cv.Mat();
 
-    // Split the artwork into channels (including alpha)
-    let channels = new cv.MatVector();
-    cv.split(artworkMat, channels);
+    // Calculate the perspective at the bottom left corner
+    // Get the vectors that define the perspective transformation
+    const leftEdgeVector = {
+      x: srcPoints[0].x - srcPoints[3].x,
+      y: srcPoints[0].y - srcPoints[3].y
+    };
+    const bottomEdgeVector = {
+      x: srcPoints[2].x - srcPoints[3].x,
+      y: srcPoints[2].y - srcPoints[3].y
+    };
 
-    // Calculate artwork position in the warped space
-    const artworkX = artworkMesh ? artworkMesh.position.x + realWidth / 2 : realWidth / 2;
-    const artworkY = artworkMesh ? -artworkMesh.position.y + realHeight / 2 : realHeight / 2;
+    // Calculate the four corners for the warped artwork
+    const artworkDestPoints = [
+      { // top-left
+        x: srcPoints[3].x + (leftEdgeVector.x * 0.3),
+        y: srcPoints[3].y + (leftEdgeVector.y * 0.3)
+      },
+      { // top-right
+        x: srcPoints[3].x + (leftEdgeVector.x * 0.3) + (bottomEdgeVector.x * 0.3),
+        y: srcPoints[3].y + (leftEdgeVector.y * 0.3) + (bottomEdgeVector.y * 0.3)
+      },
+      { // bottom-right
+        x: srcPoints[3].x + (bottomEdgeVector.x * 0.3),
+        y: srcPoints[3].y + (bottomEdgeVector.y * 0.3)
+      },
+      { // bottom-left
+        x: srcPoints[3].x,
+        y: srcPoints[3].y
+      }
+    ];
 
-    // Create transformation matrix for artwork
+    // Create source and destination point matrices for perspective transform
+    let artworkSrcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      0, 0,                          // top-left
+      artworkCanvas.width, 0,        // top-right
+      artworkCanvas.width, artworkCanvas.height,  // bottom-right
+      0, artworkCanvas.height        // bottom-left
+    ]);
+
     let artworkDstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-      artworkX - (artworkCanvas.width / 2), artworkY - (artworkCanvas.height / 2),
-      artworkX + (artworkCanvas.width / 2), artworkY - (artworkCanvas.height / 2),
-      artworkX + (artworkCanvas.width / 2), artworkY + (artworkCanvas.height / 2),
-      artworkX - (artworkCanvas.width / 2), artworkY + (artworkCanvas.height / 2)
+      artworkDestPoints[0].x, artworkDestPoints[0].y,
+      artworkDestPoints[1].x, artworkDestPoints[1].y,
+      artworkDestPoints[2].x, artworkDestPoints[2].y,
+      artworkDestPoints[3].x, artworkDestPoints[3].y
     ]);
 
     // Get perspective transform for artwork
-    let artworkM = cv.getPerspectiveTransform(dstTri, srcTri);
+    let artworkM = cv.getPerspectiveTransform(artworkSrcTri, artworkDstTri);
 
     // Warp artwork
     cv.warpPerspective(
@@ -359,21 +389,6 @@ warpButton.addEventListener('click', function () {
       new cv.Scalar(0, 0, 0, 0)  // Transparent background
     );
 
-    // Split the warped result into channels
-    let warpedChannels = new cv.MatVector();
-    cv.split(artworkWarped, warpedChannels);
-
-    // Create a mask from the alpha channel
-    let mask = warpedChannels.get(3);  // Alpha channel
-    let maskInv = new cv.Mat();
-    cv.bitwise_not(mask, maskInv);
-
-    // Apply the mask to blend images
-    let tempMat = new cv.Mat();
-    srcMat.copyTo(tempMat);
-    artworkWarped.copyTo(tempMat, mask);
-    tempMat.copyTo(srcMat);
-
     // Create a temporary canvas to store the warped artwork
     let tempCanvas = document.createElement('canvas');
     tempCanvas.width = imageCanvas.width;
@@ -382,25 +397,20 @@ warpButton.addEventListener('click', function () {
     // Show the warped artwork on the temporary canvas
     cv.imshow(tempCanvas, artworkWarped);
 
-    // Store the warped artwork as an image
+    // Store the warped artwork as an image and set its initial position
     warpedArtwork = new Image();
+    warpedArtwork.onload = function() {  // Add onload handler
+      artworkPosition = { x: 0, y: 0 };
+      redrawCanvas();  // Redraw canvas after artwork is loaded
+    };
     warpedArtwork.src = tempCanvas.toDataURL();
 
-    // Initialize artwork position
-    artworkPosition = {
-        x: 0,
-        y: 0
-    };
-
     // Clean up
-    channels.delete();
-    warpedChannels.delete();
-    mask.delete();
-    maskInv.delete();
-    tempMat.delete();
     artworkMat.delete();
     artworkWarped.delete();
     artworkM.delete();
+    artworkSrcTri.delete();
+    artworkDstTri.delete();
   }
 
   // Display result in imageCanvas
@@ -420,14 +430,6 @@ warpButton.addEventListener('click', function () {
   renderThreeScene(warpedCanvas, realWidth, realHeight);
   if (artworkLoaded) {
     addArtworkToScene();
-  }
-
-  // Initialize artwork position after warping
-  if (artworkLoaded) {
-    artworkPosition = {
-      x: 0,
-      y: 0
-    };
   }
 });
 
