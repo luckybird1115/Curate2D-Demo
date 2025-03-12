@@ -531,7 +531,7 @@ function addArtworkToScene() {
 
   // Calculate position to place artwork at top-left
   // Offset by half the artwork dimensions because the mesh pivot is at its center
-  const xPos = -bgWidth / 2 + artworkCanvas.width;
+  const xPos = -bgWidth / 2 + artworkCanvas.width / 2;
   const yPos = bgHeight / 2 - artworkCanvas.height / 2;
 
   artworkMesh.position.set(xPos, yPos, 1);
