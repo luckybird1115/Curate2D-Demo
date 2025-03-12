@@ -387,7 +387,7 @@ warpButton.addEventListener('click', function () {
     // Get perspective transform for artwork
     let artworkM = cv.getPerspectiveTransform(artworkSrcTri, artworkDstTri);
 
-    // Warp artwork
+    // Warp artwork to match the perspective
     cv.warpPerspective(
       artworkMat,
       artworkWarped,
