@@ -692,29 +692,30 @@ function updateArtworkDestPoints(artworkMesh) {
   const xRatio = relativeX / bgWidth;
   const yRatio = relativeY / bgHeight;
 
+  // Get real wall dimensions in meters
+  const realWidth = parseFloat(realWidthInput.value);
+  const realHeight = parseFloat(realHeightInput.value);
+
   // Calculate the starting point by interpolating along the edges of the drawn rectangle
   const startX = srcPoints[0].x + (topRightEdgeVector.x * xRatio) +
     (leftTopEdgeVector.x * yRatio);
   const startY = srcPoints[0].y + (topRightEdgeVector.y * xRatio) +
     (leftTopEdgeVector.y * yRatio);
 
-  // Get real wall dimensions in meters
-  const realWidth = parseFloat(realWidthInput.value);
-  const realHeight = parseFloat(realHeightInput.value);
 
   // Calculate pixels per meter for scaling
-  const rectangleWidth = Math.sqrt(
-    Math.pow(srcPoints[1].x - srcPoints[0].x, 2) +
-    Math.pow(srcPoints[1].y - srcPoints[0].y, 2)
-  );
-  const rectangleHeight = Math.sqrt(
+  const rectangleLeftEdge = Math.sqrt(
     Math.pow(srcPoints[3].x - srcPoints[0].x, 2) +
     Math.pow(srcPoints[3].y - srcPoints[0].y, 2)
   );
+  const rectangleRightEdge = Math.sqrt(
+    Math.pow(srcPoints[2].x - srcPoints[1].x, 2) +
+    Math.pow(srcPoints[2].y - srcPoints[1].y, 2)
+  );
 
   // Calculate scale factors
-  const scaleFactorWidth = artworkCanvas.width / realWidth;
-  const scaleFactorHeight = artworkCanvas.height / realHeight;
+  const scaleFactorWidth = artworkCanvas.width / realWidth * (1 - xRatio * (1 - rectangleRightEdge / rectangleLeftEdge));
+  const scaleFactorHeight = artworkCanvas.height / realHeight * (1 - xRatio * (1 - rectangleRightEdge / rectangleLeftEdge));
 
   // Calculate new destination points
   const artworkDestPoints = [
