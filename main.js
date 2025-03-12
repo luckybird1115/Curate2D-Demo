@@ -339,6 +339,10 @@ warpButton.addEventListener('click', function () {
       y: srcPoints[3].y - srcPoints[0].y
     };
 
+    // Calculate scale factors separately for width and height
+    const scaleFactorWidth = artworkCanvas.width / realWidth;
+    const scaleFactorHeight = artworkCanvas.height / realHeight;
+
     // Calculate the four corners for the warped artwork
     const artworkDestPoints = [
       { // top-left
@@ -346,16 +350,16 @@ warpButton.addEventListener('click', function () {
         y: srcPoints[0].y
       },
       { // top-right
-        x: srcPoints[0].x + (rightEdgeVector.x * 0.3),
-        y: srcPoints[0].y + (rightEdgeVector.y * 0.3)
+        x: srcPoints[0].x + (rightEdgeVector.x * scaleFactorWidth),
+        y: srcPoints[0].y + (rightEdgeVector.y * scaleFactorWidth)
       },
       { // bottom-right
-        x: srcPoints[0].x + (rightEdgeVector.x * 0.3) + (bottomEdgeVector.x * 0.3),
-        y: srcPoints[0].y + (rightEdgeVector.y * 0.3) + (bottomEdgeVector.y * 0.3)
+        x: srcPoints[0].x + (rightEdgeVector.x * scaleFactorWidth) + (bottomEdgeVector.x * scaleFactorHeight),
+        y: srcPoints[0].y + (rightEdgeVector.y * scaleFactorWidth) + (bottomEdgeVector.y * scaleFactorHeight)
       },
       { // bottom-left
-        x: srcPoints[0].x + (bottomEdgeVector.x * 0.3),
-        y: srcPoints[0].y + (bottomEdgeVector.y * 0.3)
+        x: srcPoints[0].x + (bottomEdgeVector.x * scaleFactorHeight),
+        y: srcPoints[0].y + (bottomEdgeVector.y * scaleFactorHeight)
       }
     ];
 
