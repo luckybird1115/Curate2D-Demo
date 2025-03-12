@@ -325,38 +325,37 @@ warpButton.addEventListener('click', function () {
 
   // 2) Transform the artwork if it's loaded
   if (artworkLoaded) {
-    // Create Mat from artwork canvas
     let artworkMat = cv.imread(artworkCanvas);
     let artworkWarped = new cv.Mat();
 
-    // Calculate the perspective at the bottom left corner
+    // Calculate the perspective at the top left corner
     // Get the vectors that define the perspective transformation
-    const leftEdgeVector = {
-      x: srcPoints[0].x - srcPoints[3].x,
-      y: srcPoints[0].y - srcPoints[3].y
+    const rightEdgeVector = {
+      x: srcPoints[1].x - srcPoints[0].x,
+      y: srcPoints[1].y - srcPoints[0].y
     };
     const bottomEdgeVector = {
-      x: srcPoints[2].x - srcPoints[3].x,
-      y: srcPoints[2].y - srcPoints[3].y
+      x: srcPoints[3].x - srcPoints[0].x,
+      y: srcPoints[3].y - srcPoints[0].y
     };
 
     // Calculate the four corners for the warped artwork
     const artworkDestPoints = [
       { // top-left
-        x: srcPoints[3].x + (leftEdgeVector.x * 0.3),
-        y: srcPoints[3].y + (leftEdgeVector.y * 0.3)
+        x: srcPoints[0].x,
+        y: srcPoints[0].y
       },
       { // top-right
-        x: srcPoints[3].x + (leftEdgeVector.x * 0.3) + (bottomEdgeVector.x * 0.3),
-        y: srcPoints[3].y + (leftEdgeVector.y * 0.3) + (bottomEdgeVector.y * 0.3)
+        x: srcPoints[0].x + (rightEdgeVector.x * 0.3),
+        y: srcPoints[0].y + (rightEdgeVector.y * 0.3)
       },
       { // bottom-right
-        x: srcPoints[3].x + (bottomEdgeVector.x * 0.3),
-        y: srcPoints[3].y + (bottomEdgeVector.y * 0.3)
+        x: srcPoints[0].x + (rightEdgeVector.x * 0.3) + (bottomEdgeVector.x * 0.3),
+        y: srcPoints[0].y + (rightEdgeVector.y * 0.3) + (bottomEdgeVector.y * 0.3)
       },
       { // bottom-left
-        x: srcPoints[3].x,
-        y: srcPoints[3].y
+        x: srcPoints[0].x + (bottomEdgeVector.x * 0.3),
+        y: srcPoints[0].y + (bottomEdgeVector.y * 0.3)
       }
     ];
 
@@ -386,7 +385,7 @@ warpButton.addEventListener('click', function () {
       new cv.Size(imageCanvas.width, imageCanvas.height),
       cv.INTER_LINEAR,
       cv.BORDER_CONSTANT,
-      new cv.Scalar(0, 0, 0, 0)  // Transparent background
+      new cv.Scalar(0, 0, 0, 0)
     );
 
     // Create a temporary canvas to store the warped artwork
@@ -399,9 +398,9 @@ warpButton.addEventListener('click', function () {
 
     // Store the warped artwork as an image and set its initial position
     warpedArtwork = new Image();
-    warpedArtwork.onload = function() {  // Add onload handler
+    warpedArtwork.onload = function() {
       artworkPosition = { x: 0, y: 0 };
-      redrawCanvas();  // Redraw canvas after artwork is loaded
+      redrawCanvas();
     };
     warpedArtwork.src = tempCanvas.toDataURL();
 
