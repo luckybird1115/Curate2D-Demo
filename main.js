@@ -289,9 +289,27 @@ warpButton.addEventListener('click', function () {
     return;
   }
 
-  // Get real size from the user
+  // Get real wall dimensions in meters
   const realWidth = parseFloat(realWidthInput.value);
   const realHeight = parseFloat(realHeightInput.value);
+
+  // Calculate rectangle dimensions in pixels
+  const rectangleWidth = Math.sqrt(
+      Math.pow(srcPoints[1].x - srcPoints[0].x, 2) + 
+      Math.pow(srcPoints[1].y - srcPoints[0].y, 2)
+  );
+  const rectangleHeight = Math.sqrt(
+      Math.pow(srcPoints[3].x - srcPoints[0].x, 2) + 
+      Math.pow(srcPoints[3].y - srcPoints[0].y, 2)
+  );
+
+  // Calculate pixels per meter for both dimensions
+  const pixelsPerMeterWidth = rectangleWidth / realWidth;
+  const pixelsPerMeterHeight = rectangleHeight / realHeight;
+
+  // Calculate scale factors separately for width and height
+  const scaleFactorWidth = artworkCanvas.width / (pixelsPerMeterWidth * realWidth);
+  const scaleFactorHeight = artworkCanvas.height / (pixelsPerMeterHeight * realHeight);
 
   // 1) Transform the background image first
   let srcMat = cv.imread(imageCanvas);
@@ -338,10 +356,6 @@ warpButton.addEventListener('click', function () {
       x: srcPoints[3].x - srcPoints[0].x,
       y: srcPoints[3].y - srcPoints[0].y
     };
-
-    // Calculate scale factors separately for width and height
-    const scaleFactorWidth = artworkCanvas.width / realWidth;
-    const scaleFactorHeight = artworkCanvas.height / realHeight;
 
     // Calculate the four corners for the warped artwork
     const artworkDestPoints = [
