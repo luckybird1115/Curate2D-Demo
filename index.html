@@ -80,8 +80,7 @@
             <label for="artworkLoader">Choose artwork file: </label>
             <input type="file" accept="image/*" id="artworkLoader"><br><br>
             <canvas id="artworkCanvas"></canvas>
-            <!-- Warped result canvas -->
-            <canvas id="warpedCanvas"></canvas>
+
 
             <!-- User sets the real-world size for the rectangle -->
             <label>Real Width (in some units): </label>
@@ -91,9 +90,11 @@
 
             <button id="warpButton">Warp & Show in 3D</button>
         </div>
+        <div>
+            <!-- Warped result canvas -->
+            <canvas id="warpedCanvas"></canvas>
+        </div>
 
-        <!-- three.js container -->
-        <div id="threeContainer"></div>
     </div>
 
     <script src="main.js"></script>

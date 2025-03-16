@@ -36,6 +36,12 @@ let isArtworkDragging = false;
 let artworkPosition = { x: 0, y: 0 };
 let lastMousePos = { x: 0, y: 0 };
 let warpedArtwork = null; // To store the warped artwork image
+let isWarpedArtworkDragging = false;
+let warpedLastMousePos = { x: 0, y: 0 };
+let warpedArtworkPosition = { x: 0, y: 0 };
+let Minv = null;
+let dstMat = null;
+let M = null;
 
 // --- Load the image when user selects it ---
 imageLoader.addEventListener('change', function (e) {
@@ -293,13 +299,18 @@ warpButton.addEventListener('click', function () {
   const realWidth = parseFloat(realWidthInput.value);
   const realHeight = parseFloat(realHeightInput.value);
 
-  // Calculate scale factors separately for width and height
-  const scaleFactorWidth = artworkCanvas.width / realWidth;
-  const scaleFactorHeight = artworkCanvas.height / realHeight;
+  // Set the warped canvas size to match real dimensions
+  warpedCanvas.width = realWidth;
+  warpedCanvas.height = realHeight;
 
-  // 1) Transform the background image first
+  // Clean up any existing matrices
+  if (dstMat) dstMat.delete();
+  if (Minv) Minv.delete();
+  if (M) M.delete();
+
+  // Create new matrices
   let srcMat = cv.imread(imageCanvas);
-  let dstMat = new cv.Mat();
+  dstMat = new cv.Mat();
   let dsize = new cv.Size(realWidth, realHeight);
 
   let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
@@ -316,342 +327,64 @@ warpButton.addEventListener('click', function () {
     0, realHeight
   ]);
 
-  // Compute perspective transform matrix
-  let M = cv.getPerspectiveTransform(srcTri, dstTri);
+  // Store matrices globally
+  M = cv.getPerspectiveTransform(srcTri, dstTri);
+  Minv = cv.getPerspectiveTransform(dstTri, srcTri);
 
   // Warp background image
-  cv.warpPerspective(
-    srcMat, dstMat, M, dsize,
-    cv.INTER_LINEAR,
-    cv.BORDER_CONSTANT,
-    new cv.Scalar()
-  );
-
-  // 2) Transform the artwork if it's loaded
-  if (artworkLoaded) {
-    let artworkMat = cv.imread(artworkCanvas);
-    let artworkWarped = new cv.Mat();
-
-    // Calculate the perspective at the top left corner
-    // Get the vectors that define the perspective transformation
-    const topRightEdgeVector = {
-      x: srcPoints[1].x - srcPoints[0].x,
-      y: srcPoints[1].y - srcPoints[0].y
-    };
-    const rightBottomEdgeVector = {
-      x: srcPoints[2].x - srcPoints[1].x,
-      y: srcPoints[2].y - srcPoints[1].y
-    };
-    const bottomLeftEdgeVector = {
-      x: srcPoints[3].x - srcPoints[2].x,
-      y: srcPoints[3].y - srcPoints[2].y
-    };
-
-
-
-    // Calculate the four corners for the warped artwork
-    const artworkDestPoints = [
-      { // top-left
-        x: srcPoints[0].x,
-        y: srcPoints[0].y
-      },
-      { // top-right
-        x: srcPoints[0].x + (topRightEdgeVector.x * scaleFactorWidth),
-        y: srcPoints[0].y + (topRightEdgeVector.y * scaleFactorWidth)
-      },
-      { // bottom-right
-        x: srcPoints[0].x + (topRightEdgeVector.x * scaleFactorWidth) + (rightBottomEdgeVector.x * scaleFactorHeight),
-        y: srcPoints[0].y + (topRightEdgeVector.y * scaleFactorWidth) + (rightBottomEdgeVector.y * scaleFactorHeight)
-      },
-      { // bottom-left
-        x: srcPoints[0].x + (topRightEdgeVector.x * scaleFactorWidth) + (rightBottomEdgeVector.x * scaleFactorHeight) + (bottomLeftEdgeVector.x * scaleFactorWidth),
-        y: srcPoints[0].y + (topRightEdgeVector.y * scaleFactorWidth) + (rightBottomEdgeVector.y * scaleFactorHeight) + (bottomLeftEdgeVector.y * scaleFactorWidth)
-      }
-    ];
-
-    // Create source and destination point matrices for perspective transform
-    let artworkSrcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-      0, 0,                          // top-left
-      artworkCanvas.width, 0,        // top-right
-      artworkCanvas.width, artworkCanvas.height,  // bottom-right
-      0, artworkCanvas.height        // bottom-left
-    ]);
-
-    let artworkDstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-      artworkDestPoints[0].x, artworkDestPoints[0].y,
-      artworkDestPoints[1].x, artworkDestPoints[1].y,
-      artworkDestPoints[2].x, artworkDestPoints[2].y,
-      artworkDestPoints[3].x, artworkDestPoints[3].y
-    ]);
-
-    // Get perspective transform for artwork
-    let artworkM = cv.getPerspectiveTransform(artworkSrcTri, artworkDstTri);
-
-    // Warp artwork to match the perspective
-    cv.warpPerspective(
-      artworkMat,
-      artworkWarped,
-      artworkM,
-      new cv.Size(imageCanvas.width, imageCanvas.height),
-      cv.INTER_LINEAR,
-      cv.BORDER_CONSTANT,
-      new cv.Scalar(0, 0, 0, 0)
-    );
-
-    // Create a temporary canvas to store the warped artwork
-    let tempCanvas = document.createElement('canvas');
-    tempCanvas.width = imageCanvas.width;
-    tempCanvas.height = imageCanvas.height;
-
-    // Show the warped artwork on the temporary canvas
-    cv.imshow(tempCanvas, artworkWarped);
-
-    // Store the warped artwork as an image and set its initial position
-    warpedArtwork = new Image();
-    warpedArtwork.onload = function () {
-      artworkPosition = { x: 0, y: 0 };
-      redrawCanvas();
-    };
-    warpedArtwork.src = tempCanvas.toDataURL();
-
-    // Clean up
-    artworkMat.delete();
-    artworkWarped.delete();
-    artworkM.delete();
-    artworkSrcTri.delete();
-    artworkDstTri.delete();
-  }
-
-  // Display result in imageCanvas
-  cv.imshow(imageCanvas, srcMat);
-
-  // Display warped result in warpedCanvas
+  cv.warpPerspective(srcMat, dstMat, M, dsize, cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar());
   cv.imshow(warpedCanvas, dstMat);
 
+  // Add artwork to top-left corner of warped canvas if it's loaded
+  if (artworkLoaded) {
+    // Initialize warped artwork position at top-left
+    warpedArtworkPosition = { x: 0, y: 0 };
+    warpedLastMousePos = { x: 0, y: 0 };
+    isWarpedArtworkDragging = false;
+    
+    // Draw artwork
+    warpCtx.drawImage(
+      artworkCanvas,
+      warpedArtworkPosition.x,
+      warpedArtworkPosition.y,
+      artworkCanvas.width,
+      artworkCanvas.height
+    );
+    
+    // Store the warped artwork for later use
+    warpedArtwork = artworkCanvas;
+
+    // Initial transform to image canvas
+    updateTransformedArtwork();
+  }
+
+  // Transform the green rectangle corners back to image canvas
+  const rectCorners = [
+    { x: 700, y: 0 },          // top-left
+    { x: 800, y: 0 },          // top-right
+    { x: 800, y: 50 },         // bottom-right
+    { x: 700, y: 50 }          // bottom-left
+  ];
+
+  // Convert corners to matrix format
+  let rectPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+    rectCorners[0].x, rectCorners[0].y,
+    rectCorners[1].x, rectCorners[1].y,
+    rectCorners[2].x, rectCorners[2].y,
+    rectCorners[3].x, rectCorners[3].y
+  ]);
+
+  // Transform points
+  let transformedPoints = new cv.Mat();
+  cv.perspectiveTransform(rectPoints, transformedPoints, Minv);
   // Free memory
   srcMat.delete();
-  dstMat.delete();
   srcTri.delete();
   dstTri.delete();
-  M.delete();
+  transformedPoints.delete();
 
-  // Update three.js scene
-  renderThreeScene(warpedCanvas, realWidth, realHeight);
-  if (artworkLoaded) {
-    addArtworkToScene();
-  }
 });
 
-// --- three.js scene creation ---
-let renderer, scene, camera;
-function initThree() {
-  const container = document.getElementById('threeContainer');
-  renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(container.clientWidth, container.clientHeight);
-  container.appendChild(renderer.domElement);
-
-  // Create a basic scene
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xffffff);
-
-  // Create camera
-  camera = new THREE.PerspectiveCamera(
-    45,
-    container.clientWidth / container.clientHeight,
-    0.1,
-    10000
-  );
-  camera.position.set(0, 0, 600);
-  scene.add(camera);
-
-  // Add a simple directional light
-  const light = new THREE.DirectionalLight(0xffffff, 1.0);
-  light.position.set(0, 0, 1000).normalize();
-  scene.add(light);
-
-  // Add event listeners for dragging AFTER renderer is initialized
-  renderer.domElement.addEventListener('mousedown', onMouseDown);
-  renderer.domElement.addEventListener('mousemove', onMouseMove);
-  renderer.domElement.addEventListener('mouseup', onMouseUp);
-}
-
-function renderThreeScene(warpCanvas, realW, realH) {
-  // If first time, init the scene
-  if (!renderer) {
-    initThree();
-  } else {
-    // Clear existing objects from the scene if you want a fresh update
-    // This is optional, depending on your design
-    while (scene.children.length > 0) {
-      scene.remove(scene.children[0]);
-    }
-    scene.add(camera);
-  }
-
-  // Create texture from the warpedCanvas
-  const texture = new THREE.Texture(warpCanvas);
-  // Must flag for update
-  texture.needsUpdate = true;
-
-  // Plane geometry with dimension = realW x realH
-  const geometry = new THREE.PlaneGeometry(realW, realH);
-  const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
-  const bgMesh = new THREE.Mesh(geometry, material);
-  bgMesh.userData.name = "background";
-
-  // Adjust mesh position so it's centered in the scene
-  bgMesh.position.set(0, 0, 0);
-
-  scene.add(bgMesh);
-
-  // Now re-render
-  animate();
-}
-
-function animate() {
-  requestAnimationFrame(animate);
-  renderer.render(scene, camera);
-}
-
-// Add these new functions
-function addArtworkToScene() {
-  const artworkTexture = new THREE.Texture(artworkCanvas);
-  artworkTexture.needsUpdate = true;
-
-  const geometry = new THREE.PlaneGeometry(
-    artworkCanvas.width,
-    artworkCanvas.height
-  );
-  const material = new THREE.MeshBasicMaterial({
-    map: artworkTexture,
-    side: THREE.DoubleSide,
-    transparent: true
-  });
-
-  // Remove existing artwork mesh if it exists
-  if (artworkMesh) {
-    scene.remove(artworkMesh);
-  }
-
-  artworkMesh = new THREE.Mesh(geometry, material);
-
-  // Get the background mesh dimensions
-  const bgMesh = scene.children.find(child => child instanceof THREE.Mesh && child.userData.name === "background");
-  const bgWidth = bgMesh.geometry.parameters.width;
-  const bgHeight = bgMesh.geometry.parameters.height;
-
-  // Calculate position to place artwork at top-left
-  // Offset by half the artwork dimensions because the mesh pivot is at its center
-  const xPos = -bgWidth / 2 + artworkCanvas.width / 2;
-  const yPos = bgHeight / 2 - artworkCanvas.height / 2;
-
-  artworkMesh.position.set(xPos, yPos, 1);
-  scene.add(artworkMesh);
-}
-
-// Add these event listeners for dragging
-function onMouseDown(event) {
-  if (!artworkMesh) return;
-
-  isDragging3D = true;
-  previousMousePosition = {
-    x: event.clientX,
-    y: event.clientY
-  };
-}
-
-function onMouseMove(event) {
-  if (!isDragging3D || !artworkMesh) return;
-
-  const deltaMove = {
-    x: event.clientX - previousMousePosition.x,
-    y: event.clientY - previousMousePosition.y
-  };
-
-  // Convert mouse movement to world space movement
-  const movementSpeed = 1;
-  const newX = artworkMesh.position.x + deltaMove.x * movementSpeed;
-  const newY = artworkMesh.position.y - deltaMove.y * movementSpeed;
-
-  // Get the dimensions of both meshes
-  const bgGeometry = scene.children.find(child => child !== artworkMesh && child instanceof THREE.Mesh).geometry;
-  const artworkGeometry = artworkMesh.geometry;
-
-  // Calculate the bounds
-  const bgWidth = bgGeometry.parameters.width;
-  const bgHeight = bgGeometry.parameters.height;
-  const artworkWidth = artworkGeometry.parameters.width;
-  const artworkHeight = artworkGeometry.parameters.height;
-
-  // Calculate the maximum allowed positions
-  const maxX = (bgWidth - artworkWidth) / 2;
-  const maxY = (bgHeight - artworkHeight) / 2;
-
-  // Constrain the position within bounds
-  artworkMesh.position.x = Math.max(-maxX, Math.min(maxX, newX));
-  artworkMesh.position.y = Math.max(-maxY, Math.min(maxY, newY));
-
-  previousMousePosition = {
-    x: event.clientX,
-    y: event.clientY
-  };
-
-}
-
-function onMouseUp() {
-  if (isDragging3D && artworkMesh) {
-    const newPoints = updateArtworkDestPoints(artworkMesh);
-
-    // Create new matrices for perspective transform
-    let artworkMat = cv.imread(artworkCanvas);
-    let artworkWarped = new cv.Mat();
-    let artworkSrcTri = cv.matFromArray(4, 1, cv.CV_32FC2, newPoints.srcPoints);
-    let artworkDstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-      newPoints.destPoints[0].x, newPoints.destPoints[0].y,
-      newPoints.destPoints[1].x, newPoints.destPoints[1].y,
-      newPoints.destPoints[2].x, newPoints.destPoints[2].y,
-      newPoints.destPoints[3].x, newPoints.destPoints[3].y
-    ]);
-
-    // Get perspective transform for artwork
-    let artworkM = cv.getPerspectiveTransform(artworkSrcTri, artworkDstTri);
-
-    // Warp artwork
-    cv.warpPerspective(
-      artworkMat,
-      artworkWarped,
-      artworkM,
-      new cv.Size(imageCanvas.width, imageCanvas.height),
-      cv.INTER_LINEAR,
-      cv.BORDER_CONSTANT,
-      new cv.Scalar(0, 0, 0, 0)
-    );
-
-    // Create a temporary canvas to store the warped artwork
-    let tempCanvas = document.createElement('canvas');
-    tempCanvas.width = imageCanvas.width;
-    tempCanvas.height = imageCanvas.height;
-
-    // Show the warped artwork on the temporary canvas
-    cv.imshow(tempCanvas, artworkWarped);
-
-    // Update the warped artwork image
-    warpedArtwork = new Image();
-    warpedArtwork.onload = function () {
-      artworkPosition = { x: 0, y: 0 };
-      redrawCanvas();
-    };
-    warpedArtwork.src = tempCanvas.toDataURL();
-
-    // Clean up
-    artworkMat.delete();
-    artworkWarped.delete();
-    artworkM.delete();
-    artworkSrcTri.delete();
-    artworkDstTri.delete();
-  }
-  isDragging3D = false;
-}
 
 function updateArtworkDestPoints(artworkMesh) {
   // Get the background mesh
@@ -763,3 +496,165 @@ function isPointInArtwork(x, y) {
     y >= artworkPosition.y &&
     y <= artworkPosition.y + warpedArtwork.height;
 }
+
+// Add these helper functions
+function isPointInWarpedArtwork(x, y) {
+  if (!warpedArtworkPosition || !artworkCanvas) return false;
+  
+  const artworkBounds = {
+    left: warpedArtworkPosition.x,
+    right: warpedArtworkPosition.x + artworkCanvas.width,
+    top: warpedArtworkPosition.y,
+    bottom: warpedArtworkPosition.y + artworkCanvas.height
+  };
+
+  return x >= artworkBounds.left && 
+         x <= artworkBounds.right && 
+         y >= artworkBounds.top && 
+         y <= artworkBounds.bottom;
+}
+
+function redrawWarpedCanvas() {
+  if (!dstMat) return;  // Add safety check
+  
+  const warpCtx = warpedCanvas.getContext('2d');
+  // Clear canvas
+  warpCtx.clearRect(0, 0, warpedCanvas.width, warpedCanvas.height);
+  
+  // Redraw warped background
+  cv.imshow(warpedCanvas, dstMat);
+
+  // Draw artork at current position
+  if (artworkLoaded) {
+    warpCtx.drawImage(
+      artworkCanvas,
+      warpedArtworkPosition.x,
+      warpedArtworkPosition.y,
+      artworkCanvas.width,
+      artworkCanvas.height
+    );
+  }
+}
+
+function updateTransformedArtwork() {
+  if (!artworkLoaded || !Minv) return;  // Add safety check
+
+  // Get artwork corners in warped space
+  const artworkCorners = [
+    { x: warpedArtworkPosition.x, y: warpedArtworkPosition.y }, // top-left
+    { x: warpedArtworkPosition.x + artworkCanvas.width, y: warpedArtworkPosition.y }, // top-right
+    { x: warpedArtworkPosition.x + artworkCanvas.width, y: warpedArtworkPosition.y + artworkCanvas.height }, // bottom-right
+    { x: warpedArtworkPosition.x, y: warpedArtworkPosition.y + artworkCanvas.height } // bottom-left
+  ];
+
+  // Convert to matrix format
+  let artworkPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+    artworkCorners[0].x, artworkCorners[0].y,
+    artworkCorners[1].x, artworkCorners[1].y,
+    artworkCorners[2].x, artworkCorners[2].y,
+    artworkCorners[3].x, artworkCorners[3].y
+  ]);
+
+  // Transform points
+  let transformedArtworkPoints = new cv.Mat();
+  cv.perspectiveTransform(artworkPoints, transformedArtworkPoints, Minv);
+
+  // Redraw original canvas
+  ctx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
+  ctx.drawImage(img, 0, 0);
+
+  // Draw transformed artwork shape
+  ctx.beginPath();
+  ctx.fillStyle = 'rgba(0, 255, 255, 0.5)'; // semi-transparent cyan
+  ctx.moveTo(transformedArtworkPoints.data32F[0], transformedArtworkPoints.data32F[1]);
+  for (let i = 2; i < transformedArtworkPoints.data32F.length; i += 2) {
+    ctx.lineTo(transformedArtworkPoints.data32F[i], transformedArtworkPoints.data32F[i + 1]);
+  }
+  ctx.closePath();
+  ctx.fill();
+
+  // Update stored position for original canvas
+  artworkPosition = {
+    x: transformedArtworkPoints.data32F[0],
+    y: transformedArtworkPoints.data32F[1]
+  };
+
+  // Clean up
+  artworkPoints.delete();
+  transformedArtworkPoints.delete();
+}
+
+// Add or update these event listeners for the warped canvas
+warpedCanvas.addEventListener('mousedown', function(evt) {
+  if (!artworkLoaded) return;
+
+  const rect = warpedCanvas.getBoundingClientRect();
+  // Calculate the scale factor in case the canvas is being displayed at a different size
+  const scaleX = warpedCanvas.width / rect.width;
+  const scaleY = warpedCanvas.height / rect.height;
+  
+  // Get the actual position in canvas coordinates
+  const x = (evt.clientX - rect.left) * scaleX;
+  const y = (evt.clientY - rect.top) * scaleY;
+
+  // Check if clicking on artwork
+  if (isPointInWarpedArtwork(x, y)) {
+    isWarpedArtworkDragging = true;
+    warpedLastMousePos = { x, y };
+    warpedCanvas.style.cursor = 'grabbing';
+  }
+});
+
+warpedCanvas.addEventListener('mousemove', function(evt) {
+  if (!isWarpedArtworkDragging) return;
+
+  const rect = warpedCanvas.getBoundingClientRect();
+  const scaleX = warpedCanvas.width / rect.width;
+  const scaleY = warpedCanvas.height / rect.height;
+  
+  const x = (evt.clientX - rect.left) * scaleX;
+  const y = (evt.clientY - rect.top) * scaleY;
+
+  const dx = x - warpedLastMousePos.x;
+  const dy = y - warpedLastMousePos.y;
+
+  warpedArtworkPosition.x += dx;
+  warpedArtworkPosition.y += dy;
+
+  warpedLastMousePos = { x, y };
+
+  // Redraw warped canvas
+  redrawWarpedCanvas();
+  
+  // Update transformed artwork position on original canvas
+  updateTransformedArtwork();
+});
+
+warpedCanvas.addEventListener('mouseup', function() {
+  isWarpedArtworkDragging = false;
+  warpedCanvas.style.cursor = 'default';
+});
+
+warpedCanvas.addEventListener('mouseleave', function() {
+  isWarpedArtworkDragging = false;
+  warpedCanvas.style.cursor = 'default';
+});
+
+// Add cleanup function
+function cleanup() {
+  if (dstMat) {
+    dstMat.delete();
+    dstMat = null;
+  }
+  if (Minv) {
+    Minv.delete();
+    Minv = null;
+  }
+  if (M) {
+    M.delete();
+    M = null;
+  }
+}
+
+// Add window unload handler to ensure cleanup
+window.addEventListener('unload', cleanup);
