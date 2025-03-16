@@ -114,8 +114,8 @@ drawButton.addEventListener('click', function () {
   const centerY = imageCanvas.height / 2;
 
   // Rectangle dimensions
-  const width = 300;
-  const height = 150;
+  const width = 500;
+  const height = 300;
 
   // Calculate corner points
   const points = [
@@ -295,7 +295,7 @@ warpButton.addEventListener('click', function () {
     return;
   }
 
-  // Get real size from the user
+  // Get real wall dimensions in meters
   const realWidth = parseFloat(realWidthInput.value);
   const realHeight = parseFloat(realHeightInput.value);
 
@@ -385,6 +385,107 @@ warpButton.addEventListener('click', function () {
 
 });
 
+
+function updateArtworkDestPoints(artworkMesh) {
+  // Get the background mesh
+  const bgMesh = scene.children.find(child => child instanceof THREE.Mesh && child.userData.name === "background");
+
+  // Get dimensions
+  const bgWidth = bgMesh.geometry.parameters.width;
+  const bgHeight = bgMesh.geometry.parameters.height;
+
+  // Calculate artwork's position relative to background mesh
+  // Convert from three.js coordinates (centered) to top-left based coordinates
+  const relativeX = Math.abs(artworkMesh.position.x - artworkMesh.geometry.parameters.width / 2 + bgWidth / 2);  // Distance from left edge
+  const relativeY = Math.abs(artworkMesh.position.y + artworkMesh.geometry.parameters.height / 2 - bgHeight / 2)  // Distance from top edge
+
+  console.log(relativeX, relativeY, "00000000");
+  console.log(artworkMesh.position.x, artworkMesh.position.y, bgWidth, bgHeight, artworkMesh.geometry.parameters.width, artworkMesh.geometry.parameters.height, "11111111");
+
+  // Calculate the vectors that define the perspective transformation
+
+  const topRightEdgeVector = {
+    x: srcPoints[1].x - srcPoints[0].x,
+    y: srcPoints[1].y - srcPoints[0].y
+  };
+  const rightBottomEdgeVector = {
+    x: srcPoints[2].x - srcPoints[1].x,
+    y: srcPoints[2].y - srcPoints[1].y
+  };
+  const bottomLeftEdgeVector = {
+    x: srcPoints[3].x - srcPoints[2].x,
+    y: srcPoints[3].y - srcPoints[2].y
+  };
+  const leftTopEdgeVector = {
+    x: srcPoints[3].x - srcPoints[0].x,
+    y: srcPoints[3].y - srcPoints[0].y
+  };
+
+  // Calculate ratios of position relative to background size
+  const xRatio = relativeX / bgWidth;
+  const yRatio = relativeY / bgHeight;
+
+  // Get real wall dimensions in meters
+  const realWidth = parseFloat(realWidthInput.value);
+  const realHeight = parseFloat(realHeightInput.value);
+
+  // Calculate the starting point by interpolating along the edges of the drawn rectangle
+  const startX = srcPoints[0].x + (topRightEdgeVector.x * xRatio) +
+    (leftTopEdgeVector.x * yRatio);
+  const startY = srcPoints[0].y + (topRightEdgeVector.y * xRatio) +
+    (leftTopEdgeVector.y * yRatio);
+
+
+  // Calculate pixels per meter for scaling
+  const rectangleLeftEdge = Math.sqrt(
+    Math.pow(srcPoints[3].x - srcPoints[0].x, 2) +
+    Math.pow(srcPoints[3].y - srcPoints[0].y, 2)
+  );
+  const rectangleRightEdge = Math.sqrt(
+    Math.pow(srcPoints[2].x - srcPoints[1].x, 2) +
+    Math.pow(srcPoints[2].y - srcPoints[1].y, 2)
+  );
+
+  // Calculate scale factors
+  const scaleFactorWidth = artworkCanvas.width / realWidth * (1 - xRatio * (1 - rectangleRightEdge / rectangleLeftEdge));
+  const scaleFactorHeight = artworkCanvas.height / realHeight * (1 - xRatio * (1 - rectangleRightEdge / rectangleLeftEdge));
+
+  // Calculate new destination points
+  const artworkDestPoints = [
+    { // top-left
+      x: startX,
+      y: startY
+    },
+    { // top-right
+      x: startX + (topRightEdgeVector.x * scaleFactorWidth),
+      y: startY + (topRightEdgeVector.y * scaleFactorWidth)
+    },
+    { // bottom-right
+      x: startX + (topRightEdgeVector.x * scaleFactorWidth) +
+        (rightBottomEdgeVector.x * scaleFactorHeight),
+      y: startY + (topRightEdgeVector.y * scaleFactorWidth) +
+        (rightBottomEdgeVector.y * scaleFactorHeight)
+    },
+    { // bottom-left
+      x: startX + (topRightEdgeVector.x * scaleFactorWidth) +
+        (rightBottomEdgeVector.x * scaleFactorHeight) +
+        (bottomLeftEdgeVector.x * scaleFactorWidth),
+      y: startY + (topRightEdgeVector.y * scaleFactorWidth) +
+        (rightBottomEdgeVector.y * scaleFactorHeight) +
+        (bottomLeftEdgeVector.y * scaleFactorWidth)
+    }
+  ];
+
+  return {
+    destPoints: artworkDestPoints,
+    srcPoints: [
+      0, 0,                          // top-left
+      artworkCanvas.width, 0,        // top-right
+      artworkCanvas.width, artworkCanvas.height,  // bottom-right
+      0, artworkCanvas.height        // bottom-left
+    ]
+  };
+}
 
 // Add this helper function to check if a point is within the artwork bounds
 function isPointInArtwork(x, y) {
