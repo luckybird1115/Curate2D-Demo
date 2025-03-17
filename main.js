@@ -217,7 +217,7 @@ imageCanvas.addEventListener('mousemove', function (evt) {
 
     let srcPoint = null;
     let dstPoint = null;
-    
+
     try {
       // Create new matrices for this drag operation
       srcPoint = cv.matFromArray(1, 1, cv.CV_32FC2, [x, y]);
@@ -227,35 +227,36 @@ imageCanvas.addEventListener('mousemove', function (evt) {
       cv.perspectiveTransform(srcPoint, dstPoint, M);
 
       // Update position only if transformation was successful
-      if (dstPoint && dstPoint.rows > 0 && dstPoint.cols > 0) {
-        warpedArtworkPosition.x = dstPoint.data32F[0];
-        warpedArtworkPosition.y = dstPoint.data32F[1];
+      if (dstPoint && !dstPoint.empty()) {
+        const newX = dstPoint.data32F[0];
+        const newY = dstPoint.data32F[1];
 
-        // Use requestAnimationFrame for smoother updates
-        lastDragOperation = requestAnimationFrame(() => {
-          redrawWarpedCanvas();
-          updateTransformedArtwork();
-        });
+        // Only update if the new position is valid
+        if (!isNaN(newX) && !isNaN(newY)) {
+          warpedArtworkPosition.x = newX;
+          warpedArtworkPosition.y = newY;
+
+          lastDragOperation = requestAnimationFrame(() => {
+            try {
+              redrawWarpedCanvas();
+              updateTransformedArtwork();
+            } catch (error) {
+              console.error('Error in animation frame:', error);
+            }
+          });
+        }
       }
 
       lastMousePos = { x, y };
     } catch (error) {
       console.error('Error during drag operation:', error);
     } finally {
-      // Clean up matrices in finally block
-      if (srcPoint) {
-        try {
-          srcPoint.delete();
-        } catch (e) {
-          console.warn('Error cleaning up srcPoint:', e);
-        }
+      // Clean up matrices
+      if (srcPoint && !srcPoint.deleted) {
+        srcPoint.delete();
       }
-      if (dstPoint) {
-        try {
-          dstPoint.delete();
-        } catch (e) {
-          console.warn('Error cleaning up dstPoint:', e);
-        }
+      if (dstPoint && !dstPoint.deleted) {
+        dstPoint.delete();
       }
     }
     return;
@@ -297,7 +298,7 @@ imageCanvas.addEventListener('mouseup', function () {
     cancelAnimationFrame(lastDragOperation);
     lastDragOperation = null;
   }
-  
+
   isDragging = false;
   isArtworkDragging = false;
   selectedPoint = null;
@@ -310,7 +311,7 @@ imageCanvas.addEventListener('mouseleave', function () {
     cancelAnimationFrame(lastDragOperation);
     lastDragOperation = null;
   }
-  
+
   isDragging = false;
   isArtworkDragging = false;
   selectedPoint = null;
@@ -785,83 +786,88 @@ window.addEventListener('unload', cleanup);
 // Add this function to draw the warped artwork
 function drawWarpedArtwork(points) {
   if (!artworkLoaded || !artworkCanvas) return;
-  // Create source and destination point matrices for the artwork
-  let artworkSrcPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
-    0, 0,                          // top-left
-    artworkCanvas.width, 0,        // top-right
-    artworkCanvas.width, artworkCanvas.height,  // bottom-right
-    0, artworkCanvas.height        // bottom-left
-  ]);
 
-  let artworkDstPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
-    points[0], points[1],   // top-left
-    points[2], points[3],   // top-right
-    points[4], points[5],   // bottom-right
-    points[6], points[7]    // bottom-left
-  ]);
+  let artworkSrcPoints = null;
+  let artworkDstPoints = null;
+  let artworkTransformMatrix = null;
+  let artworkSrcMat = null;
+  let artworkDstMat = null;
+  let tempMat = null;
 
-  // Create transformation matrix for the artwork
-  let artworkTransformMatrix = cv.getPerspectiveTransform(artworkSrcPoints, artworkDstPoints);
+  try {
+    // First, clear the entire canvas and redraw only the background
+    ctx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
+    ctx.drawImage(img, 0, 0);
 
-  // Create OpenCV matrices
-  // Use artworkCanvas directly instead of warpedCanvas to get only the artwork
-  let artworkSrcMat = cv.imread(artworkCanvas);
-  let artworkDstMat = new cv.Mat();
+    // Redraw the corner points and rectangle if they exist
+    // Create matrices for the artwork transformation
+    artworkSrcPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      0, 0,
+      artworkCanvas.width, 0,
+      artworkCanvas.width, artworkCanvas.height,
+      0, artworkCanvas.height
+    ]);
 
-  // Create size object for the destination
-  let dsize = new cv.Size(imageCanvas.width, imageCanvas.height);
+    artworkDstPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      points[0], points[1],
+      points[2], points[3],
+      points[4], points[5],
+      points[6], points[7]
+    ]);
 
-  // Create a temporary canvas for the artwork with transparency
-  let tempCanvas = document.createElement('canvas');
-  tempCanvas.width = imageCanvas.width;
-  tempCanvas.height = imageCanvas.height;
-  let tempCtx = tempCanvas.getContext('2d');
+    // Create transformation matrix
+    artworkTransformMatrix = cv.getPerspectiveTransform(artworkSrcPoints, artworkDstPoints);
 
-  // Clear temp canvas with transparency
-  tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+    // Create temporary canvas for the artwork
+    let tempCanvas = document.createElement('canvas');
+    tempCanvas.width = imageCanvas.width;
+    tempCanvas.height = imageCanvas.height;
+    let tempCtx = tempCanvas.getContext('2d');
+    tempCtx.drawImage(artworkCanvas, 0, 0);
 
-  // Draw only the artwork onto the temp canvas
-  tempCtx.drawImage(artworkCanvas, 0, 0);
+    // Convert to OpenCV matrices
+    artworkSrcMat = cv.imread(artworkCanvas);
+    artworkDstMat = new cv.Mat();
+    tempMat = cv.imread(tempCanvas);
 
-  // Convert the temp canvas to an OpenCV matrix
-  let tempMat = cv.imread(tempCanvas);
+    // Perform the warp
+    let dsize = new cv.Size(imageCanvas.width, imageCanvas.height);
+    cv.warpPerspective(
+      tempMat,
+      artworkDstMat,
+      artworkTransformMatrix,
+      dsize,
+      cv.INTER_LINEAR,
+      cv.BORDER_TRANSPARENT,
+      new cv.Scalar(0, 0, 0, 0)
+    );
 
-  // Perform the perspective warp with transparent background
-  cv.warpPerspective(
-    tempMat,
-    artworkDstMat,
-    artworkTransformMatrix,
-    dsize,
-    cv.INTER_LINEAR,
-    cv.BORDER_TRANSPARENT,
-    new cv.Scalar(0, 0, 0, 0)  // Fully transparent background
-  );
+    // Create temporary canvas for the warped artwork
+    let finalTempCanvas = document.createElement('canvas');
+    finalTempCanvas.width = imageCanvas.width;
+    finalTempCanvas.height = imageCanvas.height;
+    cv.imshow(finalTempCanvas, artworkDstMat);
 
-  // Create another temporary canvas for the final composition
-  let finalTempCanvas = document.createElement('canvas');
-  finalTempCanvas.width = imageCanvas.width;
-  finalTempCanvas.height = imageCanvas.height;
+    // Draw the warped artwork directly onto the main canvas
+    ctx.drawImage(finalTempCanvas, 0, 0);
 
-  // Show the warped artwork on the temp canvas
-  cv.imshow(finalTempCanvas, artworkDstMat);
+    // Clean up temporary canvases
+    tempCanvas.remove();
+    finalTempCanvas.remove();
 
-  // Create a composite canvas for proper layering
-  let compositeCanvas = document.createElement('canvas');
-  compositeCanvas.width = imageCanvas.width;
-  compositeCanvas.height = imageCanvas.height;
-  let compositeCtx = compositeCanvas.getContext('2d');
-
-  // 1. Draw background
-  compositeCtx.drawImage(img, 0, 0);
-
-  // 2. Draw the warped artwork
-  compositeCtx.drawImage(finalTempCanvas, 0, 0);
-
-  // 3. Clear the main canvas and draw the composite
-  ctx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
-  ctx.drawImage(compositeCanvas, 0, 0);
-  // Clean up temporary canvases
-  finalTempCanvas.remove();
-  compositeCanvas.remove();
-
+  } catch (error) {
+    console.error('Error in drawWarpedArtwork:', error);
+  } finally {
+    // Clean up all OpenCV matrices
+    [artworkSrcPoints, artworkDstPoints, artworkTransformMatrix,
+      artworkSrcMat, artworkDstMat, tempMat].forEach(mat => {
+        if (mat && !mat.deleted) {
+          try {
+            mat.delete();
+          } catch (e) {
+            console.warn('Error cleaning up matrix:', e);
+          }
+        }
+      });
+  }
 }
