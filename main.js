@@ -537,7 +537,11 @@ function redrawWarpedCanvas() {
 }
 
 function updateTransformedArtwork() {
-  if (!artworkLoaded || !Minv) return;  // Add safety check
+  if (!artworkLoaded || !Minv) return;
+
+  // First, restore the original background image
+  ctx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
+  ctx.drawImage(img, 0, 0);
 
   // Get artwork corners in warped space
   const artworkCorners = [
@@ -561,10 +565,6 @@ function updateTransformedArtwork() {
 
   // Instead of drawing the shape, draw the actual warped artwork
   const p = transformedArtworkPoints.data32F;
-
-  // First, draw the original background image
-  ctx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
-  ctx.drawImage(img, 0, 0);
 
   // Create source and destination point matrices for the artwork
   let artworkSrcPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
@@ -626,16 +626,24 @@ function updateTransformedArtwork() {
   // Show the warped artwork on the temp canvas
   cv.imshow(finalTempCanvas, artworkDstMat);
 
-  // Draw the temp canvas over the background image
-  ctx.drawImage(finalTempCanvas, 0, 0);
+  // Create a composite canvas for proper layering
+  let compositeCanvas = document.createElement('canvas');
+  compositeCanvas.width = imageCanvas.width;
+  compositeCanvas.height = imageCanvas.height;
+  let compositeCtx = compositeCanvas.getContext('2d');
 
-  // Clean up
-  artworkSrcPoints.delete();
-  artworkDstPoints.delete();
-  artworkTransformMatrix.delete();
-  artworkSrcMat.delete();
-  artworkDstMat.delete();
-  tempMat.delete();
+  // 1. Draw background
+  compositeCtx.drawImage(img, 0, 0);
+  
+  // 2. Draw the warped artwork
+  compositeCtx.drawImage(finalTempCanvas, 0, 0);
+
+  // 3. Clear the main canvas and draw the composite
+  ctx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
+  ctx.drawImage(compositeCanvas, 0, 0);
+  // Clean up temporary canvases
+  finalTempCanvas.remove();
+  compositeCanvas.remove();
 
   // Update stored position for original canvas
   artworkPosition = {
