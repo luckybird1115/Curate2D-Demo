@@ -55,6 +55,9 @@ let dragTransformMatrix = null;
 // Add this variable at the top of your file
 let lastDragOperation = null;
 
+// Add this line after getting the warpedCanvas element
+warpedCanvas.style.display = 'none';
+
 // --- Load the image when user selects it ---
 imageLoader.addEventListener('change', function (e) {
   const file = e.target.files[0];
