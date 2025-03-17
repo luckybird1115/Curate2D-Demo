@@ -559,19 +559,83 @@ function updateTransformedArtwork() {
   let transformedArtworkPoints = new cv.Mat();
   cv.perspectiveTransform(artworkPoints, transformedArtworkPoints, Minv);
 
-  // Redraw original canvas
+  // Instead of drawing the shape, draw the actual warped artwork
+  const p = transformedArtworkPoints.data32F;
+
+  // First, draw the original background image
   ctx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
   ctx.drawImage(img, 0, 0);
 
-  // Draw transformed artwork shape
-  ctx.beginPath();
-  ctx.fillStyle = 'rgba(0, 255, 255, 0.5)'; // semi-transparent cyan
-  ctx.moveTo(transformedArtworkPoints.data32F[0], transformedArtworkPoints.data32F[1]);
-  for (let i = 2; i < transformedArtworkPoints.data32F.length; i += 2) {
-    ctx.lineTo(transformedArtworkPoints.data32F[i], transformedArtworkPoints.data32F[i + 1]);
-  }
-  ctx.closePath();
-  ctx.fill();
+  // Create source and destination point matrices for the artwork
+  let artworkSrcPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      0, 0,                          // top-left
+      artworkCanvas.width, 0,        // top-right
+      artworkCanvas.width, artworkCanvas.height,  // bottom-right
+      0, artworkCanvas.height        // bottom-left
+  ]);
+
+  let artworkDstPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      p[0], p[1],   // top-left
+      p[2], p[3],   // top-right
+      p[4], p[5],   // bottom-right
+      p[6], p[7]    // bottom-left
+  ]);
+
+  // Create transformation matrix for the artwork
+  let artworkTransformMatrix = cv.getPerspectiveTransform(artworkSrcPoints, artworkDstPoints);
+
+  // Create OpenCV matrices
+  // Use artworkCanvas directly instead of warpedCanvas to get only the artwork
+  let artworkSrcMat = cv.imread(artworkCanvas);
+  let artworkDstMat = new cv.Mat();
+
+  // Create size object for the destination
+  let dsize = new cv.Size(imageCanvas.width, imageCanvas.height);
+
+  // Create a temporary canvas for the artwork with transparency
+  let tempCanvas = document.createElement('canvas');
+  tempCanvas.width = imageCanvas.width;
+  tempCanvas.height = imageCanvas.height;
+  let tempCtx = tempCanvas.getContext('2d');
+
+  // Clear temp canvas with transparency
+  tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+  // Draw only the artwork onto the temp canvas
+  tempCtx.drawImage(artworkCanvas, 0, 0);
+
+  // Convert the temp canvas to an OpenCV matrix
+  let tempMat = cv.imread(tempCanvas);
+
+  // Perform the perspective warp with transparent background
+  cv.warpPerspective(
+      tempMat,
+      artworkDstMat,
+      artworkTransformMatrix,
+      dsize,
+      cv.INTER_LINEAR,
+      cv.BORDER_TRANSPARENT,
+      new cv.Scalar(0, 0, 0, 0)  // Fully transparent background
+  );
+
+  // Create another temporary canvas for the final composition
+  let finalTempCanvas = document.createElement('canvas');
+  finalTempCanvas.width = imageCanvas.width;
+  finalTempCanvas.height = imageCanvas.height;
+
+  // Show the warped artwork on the temp canvas
+  cv.imshow(finalTempCanvas, artworkDstMat);
+
+  // Draw the temp canvas over the background image
+  ctx.drawImage(finalTempCanvas, 0, 0);
+
+  // Clean up
+  artworkSrcPoints.delete();
+  artworkDstPoints.delete();
+  artworkTransformMatrix.delete();
+  artworkSrcMat.delete();
+  artworkDstMat.delete();
+  tempMat.delete();
 
   // Update stored position for original canvas
   artworkPosition = {
@@ -580,7 +644,6 @@ function updateTransformedArtwork() {
   };
 
   // Clean up
-  artworkPoints.delete();
   transformedArtworkPoints.delete();
 }
 
