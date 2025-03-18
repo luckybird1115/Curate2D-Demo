@@ -765,6 +765,8 @@ function updateTransformedArtwork() {
       };
 
       artworkTransformMatrix.delete();
+      tempMat.delete();
+      artworkDstMat.delete();
 
     }
 
