@@ -43,6 +43,21 @@ let Minv = null;
 let dstMat = null;
 let M = null;
 
+// Add these variables at the top to track temporary matrices
+let tempSrcPoint = null;
+let tempDstPoint = null;
+
+// Add these variables at the top to track matrices used in dragging
+let dragSrcPoint = null;
+let dragDstPoint = null;
+let dragTransformMatrix = null;
+
+// Add this variable at the top of your file
+let lastDragOperation = null;
+
+// Add this line after getting the warpedCanvas element
+warpedCanvas.style.display = 'none';
+
 // --- Load the image when user selects it ---
 imageLoader.addEventListener('change', function (e) {
   const file = e.target.files[0];
@@ -164,16 +179,15 @@ imageCanvas.addEventListener('mousedown', function (evt) {
   const x = evt.clientX - rect.left;
   const y = evt.clientY - rect.top;
 
-  // First check if we're clicking on the artwork
-  if (artworkPosition && isPointInArtwork(x, y)) {
-    console.log("Clicking on artwork");
+  // Check if we're clicking on a warped artwork
+  if (warpedArtwork && isPointInWarpedArtwork(x, y)) {
     isArtworkDragging = true;
     lastMousePos = { x, y };
     imageCanvas.style.cursor = 'grabbing';
     return;
   }
 
-  // If not clicking artwork, check for corner point dragging (existing code)
+  // Check for corner point dragging (existing code)
   for (let i = 0; i < srcPoints.length; i++) {
     const point = srcPoints[i];
     const distance = Math.sqrt((x - point.x) ** 2 + (y - point.y) ** 2);
@@ -185,7 +199,7 @@ imageCanvas.addEventListener('mousedown', function (evt) {
   }
 });
 
-// Add a mousemove event listener for hover effect
+// Modify the mousemove event handler
 imageCanvas.addEventListener('mousemove', function (evt) {
   if (!imgLoaded) return;
 
@@ -194,15 +208,59 @@ imageCanvas.addEventListener('mousemove', function (evt) {
   const y = evt.clientY - rect.top;
 
   // Handle artwork dragging
-  if (isArtworkDragging) {
-    const dx = x - lastMousePos.x;
-    const dy = y - lastMousePos.y;
+  if (isArtworkDragging && M) {
+    // Cancel any pending drag operation
+    if (lastDragOperation) {
+      cancelAnimationFrame(lastDragOperation);
+      lastDragOperation = null;
+    }
 
-    artworkPosition.x += dx;
-    artworkPosition.y += dy;
+    let srcPoint = null;
+    let dstPoint = null;
 
-    lastMousePos = { x, y };
-    redrawCanvas();
+    try {
+      // Create new matrices for this drag operation
+      srcPoint = cv.matFromArray(1, 1, cv.CV_32FC2, [x, y]);
+      dstPoint = new cv.Mat();
+
+      // Transform the point only if matrices are valid
+      if (!srcPoint.empty() && M && !M.empty()) {
+        cv.perspectiveTransform(srcPoint, dstPoint, M);
+
+        // Update position only if transformation was successful
+        if (dstPoint && !dstPoint.empty()) {
+          const newX = dstPoint.data32F[0];
+          const newY = dstPoint.data32F[1];
+
+          // Only update if the new position is valid
+          if (!isNaN(newX) && !isNaN(newY)) {
+            warpedArtworkPosition.x = newX;
+            warpedArtworkPosition.y = newY;
+
+            lastDragOperation = requestAnimationFrame(() => {
+              try {
+                redrawWarpedCanvas();
+                updateTransformedArtwork();
+              } catch (error) {
+                console.error('Error in animation frame:', error);
+              }
+            });
+          }
+        }
+      }
+
+      lastMousePos = { x, y };
+    } catch (error) {
+      console.error('Error during drag operation:', error);
+    } finally {
+      // Clean up matrices immediately after use
+      if (srcPoint && !srcPoint.deleted) {
+        srcPoint.delete();
+      }
+      if (dstPoint && !dstPoint.deleted) {
+        dstPoint.delete();
+      }
+    }
     return;
   }
 
@@ -236,8 +294,26 @@ imageCanvas.addEventListener('mousemove', function (evt) {
   }
 });
 
-// Update mouseup to reset cursor
+// Update mouseup event handler
 imageCanvas.addEventListener('mouseup', function () {
+  if (lastDragOperation) {
+    cancelAnimationFrame(lastDragOperation);
+    lastDragOperation = null;
+  }
+
+  isDragging = false;
+  isArtworkDragging = false;
+  selectedPoint = null;
+  imageCanvas.style.cursor = 'default';
+});
+
+// Add mouseleave handler to ensure cleanup
+imageCanvas.addEventListener('mouseleave', function () {
+  if (lastDragOperation) {
+    cancelAnimationFrame(lastDragOperation);
+    lastDragOperation = null;
+  }
+
   isDragging = false;
   isArtworkDragging = false;
   selectedPoint = null;
@@ -341,7 +417,7 @@ warpButton.addEventListener('click', function () {
     warpedArtworkPosition = { x: 0, y: 0 };
     warpedLastMousePos = { x: 0, y: 0 };
     isWarpedArtworkDragging = false;
-    
+
     // Draw artwork
     warpCtx.drawImage(
       artworkCanvas,
@@ -350,7 +426,7 @@ warpButton.addEventListener('click', function () {
       artworkCanvas.width,
       artworkCanvas.height
     );
-    
+
     // Store the warped artwork for later use
     warpedArtwork = artworkCanvas;
 
@@ -499,160 +575,246 @@ function isPointInArtwork(x, y) {
 
 // Add these helper functions
 function isPointInWarpedArtwork(x, y) {
-  if (!warpedArtworkPosition || !artworkCanvas) return false;
-  
-  const artworkBounds = {
-    left: warpedArtworkPosition.x,
-    right: warpedArtworkPosition.x + artworkCanvas.width,
-    top: warpedArtworkPosition.y,
-    bottom: warpedArtworkPosition.y + artworkCanvas.height
-  };
+  if (!warpedArtwork || !M || !artworkPosition) return false;
 
-  return x >= artworkBounds.left && 
-         x <= artworkBounds.right && 
-         y >= artworkBounds.top && 
-         y <= artworkBounds.bottom;
+  let clickPoint = null;
+  let transformedPoint = null;
+
+  try {
+    // Create a point matrix for the click coordinates
+    clickPoint = cv.matFromArray(1, 1, cv.CV_32FC2, [x, y]);
+    transformedPoint = new cv.Mat();
+
+    // Transform the point to warped space
+    cv.perspectiveTransform(clickPoint, transformedPoint, M);
+
+    // Get the transformed coordinates
+    const tx = transformedPoint.data32F[0];
+    const ty = transformedPoint.data32F[1];
+
+    // Check if the transformed point is within the warped artwork bounds
+    return tx >= warpedArtworkPosition.x &&
+      tx <= warpedArtworkPosition.x + artworkCanvas.width &&
+      ty >= warpedArtworkPosition.y &&
+      ty <= warpedArtworkPosition.y + artworkCanvas.height;
+  } catch (error) {
+    console.error('Error in isPointInWarpedArtwork:', error);
+    return false;
+  } finally {
+    // Clean up
+    if (clickPoint) {
+      clickPoint.delete();
+    }
+    if (transformedPoint) {
+      transformedPoint.delete();
+    }
+  }
 }
 
 function redrawWarpedCanvas() {
-  if (!dstMat) return;  // Add safety check
-  
-  const warpCtx = warpedCanvas.getContext('2d');
-  // Clear canvas
-  warpCtx.clearRect(0, 0, warpedCanvas.width, warpedCanvas.height);
-  
-  // Redraw warped background
-  cv.imshow(warpedCanvas, dstMat);
+  if (!dstMat) return;
 
-  // Draw artork at current position
-  if (artworkLoaded) {
-    warpCtx.drawImage(
-      artworkCanvas,
-      warpedArtworkPosition.x,
-      warpedArtworkPosition.y,
-      artworkCanvas.width,
-      artworkCanvas.height
-    );
+  try {
+    const warpCtx = warpedCanvas.getContext('2d');
+    // Clear canvas
+    warpCtx.clearRect(0, 0, warpedCanvas.width, warpedCanvas.height);
+
+    // Redraw warped background
+    cv.imshow(warpedCanvas, dstMat);
+
+    // Draw artwork at current position
+    if (artworkLoaded) {
+      warpCtx.drawImage(
+        artworkCanvas,
+        warpedArtworkPosition.x,
+        warpedArtworkPosition.y,
+        artworkCanvas.width,
+        artworkCanvas.height
+      );
+    }
+  } catch (error) {
+    console.error('Error in redrawWarpedCanvas:', error);
   }
 }
 
 function updateTransformedArtwork() {
-  if (!artworkLoaded || !Minv) return;  // Add safety check
+  if (!artworkLoaded || !Minv) return;
 
-  // Get artwork corners in warped space
-  const artworkCorners = [
-    { x: warpedArtworkPosition.x, y: warpedArtworkPosition.y }, // top-left
-    { x: warpedArtworkPosition.x + artworkCanvas.width, y: warpedArtworkPosition.y }, // top-right
-    { x: warpedArtworkPosition.x + artworkCanvas.width, y: warpedArtworkPosition.y + artworkCanvas.height }, // bottom-right
-    { x: warpedArtworkPosition.x, y: warpedArtworkPosition.y + artworkCanvas.height } // bottom-left
-  ];
+  try {
+    // Create temporary matrices for the transformation
+    let artworkPoints = null;
+    let transformedArtworkPoints = null;
 
-  // Convert to matrix format
-  let artworkPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
-    artworkCorners[0].x, artworkCorners[0].y,
-    artworkCorners[1].x, artworkCorners[1].y,
-    artworkCorners[2].x, artworkCorners[2].y,
-    artworkCorners[3].x, artworkCorners[3].y
-  ]);
+    // First, restore the original background image
+    ctx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
+    ctx.drawImage(img, 0, 0);
 
-  // Transform points
-  let transformedArtworkPoints = new cv.Mat();
-  cv.perspectiveTransform(artworkPoints, transformedArtworkPoints, Minv);
+    // Get artwork corners in warped space
+    const artworkCorners = [
+      { x: warpedArtworkPosition.x, y: warpedArtworkPosition.y },
+      { x: warpedArtworkPosition.x + artworkCanvas.width, y: warpedArtworkPosition.y },
+      { x: warpedArtworkPosition.x + artworkCanvas.width, y: warpedArtworkPosition.y + artworkCanvas.height },
+      { x: warpedArtworkPosition.x, y: warpedArtworkPosition.y + artworkCanvas.height }
+    ];
 
-  // Redraw original canvas
-  ctx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
-  ctx.drawImage(img, 0, 0);
+    // Create matrices
+    artworkPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      artworkCorners[0].x, artworkCorners[0].y,
+      artworkCorners[1].x, artworkCorners[1].y,
+      artworkCorners[2].x, artworkCorners[2].y,
+      artworkCorners[3].x, artworkCorners[3].y
+    ]);
 
-  // Draw transformed artwork shape
-  ctx.beginPath();
-  ctx.fillStyle = 'rgba(0, 255, 255, 0.5)'; // semi-transparent cyan
-  ctx.moveTo(transformedArtworkPoints.data32F[0], transformedArtworkPoints.data32F[1]);
-  for (let i = 2; i < transformedArtworkPoints.data32F.length; i += 2) {
-    ctx.lineTo(transformedArtworkPoints.data32F[i], transformedArtworkPoints.data32F[i + 1]);
+    transformedArtworkPoints = new cv.Mat();
+
+    // Transform points
+    cv.perspectiveTransform(artworkPoints, transformedArtworkPoints, Minv);
+
+    // Draw the warped artwork
+    if (transformedArtworkPoints && transformedArtworkPoints.rows > 0) {
+      const points = transformedArtworkPoints.data32F;
+
+      // drawWarpedArtwork(p);
+
+      // First, clear the entire canvas and redraw only the background
+      ctx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
+      ctx.drawImage(img, 0, 0);
+
+      // Redraw the corner points and rectangle if they exist
+      // Create matrices for the artwork transformation
+      artworkSrcPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+        0, 0,
+        artworkCanvas.width, 0,
+        artworkCanvas.width, artworkCanvas.height,
+        0, artworkCanvas.height
+      ]);
+
+      artworkDstPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+        points[0], points[1],
+        points[2], points[3],
+        points[4], points[5],
+        points[6], points[7]
+      ]);
+
+
+      // Create transformation matrix for the artwork
+      let artworkTransformMatrix = cv.getPerspectiveTransform(artworkSrcPoints, artworkDstPoints);
+
+      let artworkDstMat = new cv.Mat();
+
+      // Create size object for the destination
+      let dsize = new cv.Size(imageCanvas.width, imageCanvas.height);
+
+      // Create a temporary canvas for the artwork with transparency
+      let tempCanvas = document.createElement('canvas');
+      tempCanvas.width = imageCanvas.width;
+      tempCanvas.height = imageCanvas.height;
+      let tempCtx = tempCanvas.getContext('2d');
+
+      // Clear temp canvas with transparency
+      tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+      // Draw only the artwork onto the temp canvas
+      tempCtx.drawImage(artworkCanvas, 0, 0);
+
+      // Convert the temp canvas to an OpenCV matrix
+      let tempMat = cv.imread(tempCanvas);
+
+      // Perform the perspective warp with transparent background
+      cv.warpPerspective(
+        tempMat,
+        artworkDstMat,
+        artworkTransformMatrix,
+        dsize,
+        cv.INTER_LINEAR,
+        cv.BORDER_TRANSPARENT,
+        new cv.Scalar(0, 0, 0, 0)  // Fully transparent background
+      );
+
+      // Create another temporary canvas for the final composition
+      let finalTempCanvas = document.createElement('canvas');
+      finalTempCanvas.width = imageCanvas.width;
+      finalTempCanvas.height = imageCanvas.height;
+
+      // Show the warped artwork on the temp canvas
+      cv.imshow(finalTempCanvas, artworkDstMat);
+
+      // Create a composite canvas for proper layering
+      let compositeCanvas = document.createElement('canvas');
+      compositeCanvas.width = imageCanvas.width;
+      compositeCanvas.height = imageCanvas.height;
+      let compositeCtx = compositeCanvas.getContext('2d');
+
+      // 1. Draw background
+      compositeCtx.drawImage(img, 0, 0);
+
+      // 2. Draw the warped artwork
+      compositeCtx.drawImage(finalTempCanvas, 0, 0);
+
+      // 3. Clear the main canvas and draw the composite
+      ctx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
+      ctx.drawImage(compositeCanvas, 0, 0);
+      // Clean up temporary canvases
+      finalTempCanvas.remove();
+      compositeCanvas.remove();
+
+      // Update stored position for original canvas
+      artworkPosition = {
+        x: transformedArtworkPoints.data32F[0],
+        y: transformedArtworkPoints.data32F[1]
+      };
+
+      artworkTransformMatrix.delete();
+
+    }
+
+    // Clean up matrices
+    if (artworkPoints) artworkPoints.delete();
+    if (transformedArtworkPoints) transformedArtworkPoints.delete();
+
+  } catch (error) {
+    console.error('Error in updateTransformedArtwork:', error);
   }
-  ctx.closePath();
-  ctx.fill();
-
-  // Update stored position for original canvas
-  artworkPosition = {
-    x: transformedArtworkPoints.data32F[0],
-    y: transformedArtworkPoints.data32F[1]
-  };
-
-  // Clean up
-  artworkPoints.delete();
-  transformedArtworkPoints.delete();
 }
 
-// Add or update these event listeners for the warped canvas
-warpedCanvas.addEventListener('mousedown', function(evt) {
-  if (!artworkLoaded) return;
 
-  const rect = warpedCanvas.getBoundingClientRect();
-  // Calculate the scale factor in case the canvas is being displayed at a different size
-  const scaleX = warpedCanvas.width / rect.width;
-  const scaleY = warpedCanvas.height / rect.height;
-  
-  // Get the actual position in canvas coordinates
-  const x = (evt.clientX - rect.left) * scaleX;
-  const y = (evt.clientY - rect.top) * scaleY;
-
-  // Check if clicking on artwork
-  if (isPointInWarpedArtwork(x, y)) {
-    isWarpedArtworkDragging = true;
-    warpedLastMousePos = { x, y };
-    warpedCanvas.style.cursor = 'grabbing';
-  }
-});
-
-warpedCanvas.addEventListener('mousemove', function(evt) {
-  if (!isWarpedArtworkDragging) return;
-
-  const rect = warpedCanvas.getBoundingClientRect();
-  const scaleX = warpedCanvas.width / rect.width;
-  const scaleY = warpedCanvas.height / rect.height;
-  
-  const x = (evt.clientX - rect.left) * scaleX;
-  const y = (evt.clientY - rect.top) * scaleY;
-
-  const dx = x - warpedLastMousePos.x;
-  const dy = y - warpedLastMousePos.y;
-
-  warpedArtworkPosition.x += dx;
-  warpedArtworkPosition.y += dy;
-
-  warpedLastMousePos = { x, y };
-
-  // Redraw warped canvas
-  redrawWarpedCanvas();
-  
-  // Update transformed artwork position on original canvas
-  updateTransformedArtwork();
-});
-
-warpedCanvas.addEventListener('mouseup', function() {
-  isWarpedArtworkDragging = false;
-  warpedCanvas.style.cursor = 'default';
-});
-
-warpedCanvas.addEventListener('mouseleave', function() {
-  isWarpedArtworkDragging = false;
-  warpedCanvas.style.cursor = 'default';
-});
-
-// Add cleanup function
+// Update the cleanup function to be more thorough
 function cleanup() {
-  if (dstMat) {
+  // Clean up drag-related matrices
+  cleanupDragMatrices();
+
+  // Clean up transformation matrices
+  if (dstMat && !dstMat.deleted) {
     dstMat.delete();
     dstMat = null;
   }
-  if (Minv) {
+  if (Minv && !Minv.deleted) {
     Minv.delete();
     Minv = null;
   }
-  if (M) {
+  if (M && !M.deleted) {
     M.delete();
     M = null;
+  }
+}
+
+// Add this function to handle matrix cleanup during drag operations
+function cleanupDragMatrices() {
+  if (tempSrcPoint && !tempSrcPoint.deleted) {
+    tempSrcPoint.delete();
+    tempSrcPoint = null;
+  }
+  if (tempDstPoint && !tempDstPoint.deleted) {
+    tempDstPoint.delete();
+    tempDstPoint = null;
+  }
+  if (dragSrcPoint && !dragSrcPoint.deleted) {
+    dragSrcPoint.delete();
+    dragSrcPoint = null;
+  }
+  if (dragDstPoint && !dragDstPoint.deleted) {
+    dragDstPoint.delete();
+    dragDstPoint = null;
   }
 }
 
