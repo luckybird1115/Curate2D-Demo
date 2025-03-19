@@ -304,11 +304,43 @@ imageCanvas.addEventListener('mousemove', function (evt) {
   }
 });
 
+// Add this function to handle canvas state cleanup
+function cleanupCanvasState() {
+  // Reset canvas composite operation
+  ctx.globalCompositeOperation = 'source-over';
+  warpCtx.globalCompositeOperation = 'source-over';
+  
+  // Reset alpha values
+  ctx.globalAlpha = 1.0;
+  warpCtx.globalAlpha = 1.0;
+  
+  // Clear both canvases
+  ctx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
+  warpCtx.clearRect(0, 0, warpedCanvas.width, warpedCanvas.height);
+  
+  // Redraw the base image
+  ctx.drawImage(img, 0, 0);
+  
+  // Redraw the warped image if it exists
+  if (dstMat) {
+    cv.imshow(warpedCanvas, dstMat);
+  }
+  
+  // Redraw artwork if needed
+  if (artworkLoaded && warpedArtwork) {
+    updateTransformedArtwork();
+  }
+}
+
 // Update mouseup event handler
 imageCanvas.addEventListener('mouseup', function () {
   if (lastDragOperation) {
     cancelAnimationFrame(lastDragOperation);
     lastDragOperation = null;
+  }
+
+  if ( isArtworkDragging) {
+    cleanupCanvasState();
   }
 
   isDragging = false;
@@ -317,11 +349,15 @@ imageCanvas.addEventListener('mouseup', function () {
   imageCanvas.style.cursor = 'default';
 });
 
-// Add mouseleave handler to ensure cleanup
+// Update mouseleave handler
 imageCanvas.addEventListener('mouseleave', function () {
   if (lastDragOperation) {
     cancelAnimationFrame(lastDragOperation);
     lastDragOperation = null;
+  }
+
+  if (isDragging || isArtworkDragging) {
+    cleanupCanvasState();
   }
 
   isDragging = false;
@@ -385,9 +421,14 @@ warpButton.addEventListener('click', function () {
   const realWidth = parseFloat(realWidthInput.value);
   const realHeight = parseFloat(realHeightInput.value);
 
-  // Set the warped canvas size to match real dimensions
-  warpedCanvas.width = realWidth;
-  warpedCanvas.height = realHeight;
+  // Add padding to dimensions to help with edge artifacts
+  const paddingFactor = 1.02; // 2% padding
+  const paddedWidth = Math.ceil(realWidth * paddingFactor);
+  const paddedHeight = Math.ceil(realHeight * paddingFactor);
+
+  // Set the warped canvas size to match padded dimensions
+  warpedCanvas.width = paddedWidth;
+  warpedCanvas.height = paddedHeight;
 
   // Clean up any existing matrices
   if (dstMat) dstMat.delete();
@@ -397,28 +438,38 @@ warpButton.addEventListener('click', function () {
   // Create new matrices
   let srcMat = cv.imread(imageCanvas);
   dstMat = new cv.Mat();
-  let dsize = new cv.Size(realWidth, realHeight);
+  let dsize = new cv.Size(paddedWidth, paddedHeight);
 
+  // Add padding to source points to reduce edge artifacts
+  const padding = 2; // 2 pixels padding
   let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-    srcPoints[0].x, srcPoints[0].y,
-    srcPoints[1].x, srcPoints[1].y,
-    srcPoints[2].x, srcPoints[2].y,
-    srcPoints[3].x, srcPoints[3].y
+    srcPoints[0].x - padding, srcPoints[0].y - padding,
+    srcPoints[1].x + padding, srcPoints[1].y - padding,
+    srcPoints[2].x + padding, srcPoints[2].y + padding,
+    srcPoints[3].x - padding, srcPoints[3].y + padding
   ]);
 
   let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
     0, 0,
-    realWidth, 0,
-    realWidth, realHeight,
-    0, realHeight
+    paddedWidth, 0,
+    paddedWidth, paddedHeight,
+    0, paddedHeight
   ]);
 
   // Store matrices globally
   M = cv.getPerspectiveTransform(srcTri, dstTri);
   Minv = cv.getPerspectiveTransform(dstTri, srcTri);
 
-  // Warp background image
-  cv.warpPerspective(srcMat, dstMat, M, dsize, cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar());
+  // Warp background image with improved border handling
+  cv.warpPerspective(
+    srcMat, 
+    dstMat, 
+    M, 
+    dsize, 
+    cv.INTER_CUBIC, // Use cubic interpolation for better quality
+    cv.BORDER_REPLICATE // Replicate border pixels instead of using black
+  );
+  
   cv.imshow(warpedCanvas, dstMat);
 
   // Add artwork to top-left corner of warped canvas if it's loaded
@@ -444,31 +495,10 @@ warpButton.addEventListener('click', function () {
     updateTransformedArtwork();
   }
 
-  // Transform the green rectangle corners back to image canvas
-  const rectCorners = [
-    { x: 700, y: 0 },          // top-left
-    { x: 800, y: 0 },          // top-right
-    { x: 800, y: 50 },         // bottom-right
-    { x: 700, y: 50 }          // bottom-left
-  ];
-
-  // Convert corners to matrix format
-  let rectPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
-    rectCorners[0].x, rectCorners[0].y,
-    rectCorners[1].x, rectCorners[1].y,
-    rectCorners[2].x, rectCorners[2].y,
-    rectCorners[3].x, rectCorners[3].y
-  ]);
-
-  // Transform points
-  let transformedPoints = new cv.Mat();
-  cv.perspectiveTransform(rectPoints, transformedPoints, Minv);
   // Free memory
   srcMat.delete();
   srcTri.delete();
   dstTri.delete();
-  transformedPoints.delete();
-
 });
 
 
@@ -626,14 +656,21 @@ function redrawWarpedCanvas() {
 
   try {
     const warpCtx = warpedCanvas.getContext('2d');
-    // Clear canvas
+    // Clear entire canvas with transparency
     warpCtx.clearRect(0, 0, warpedCanvas.width, warpedCanvas.height);
+    warpCtx.globalAlpha = 1.0;
 
+    // Create a clean copy of the warped background
+    let cleanDstMat = new cv.Mat();
+    dstMat.copyTo(cleanDstMat);
+    
     // Redraw warped background
-    cv.imshow(warpedCanvas, dstMat);
+    cv.imshow(warpedCanvas, cleanDstMat);
+    cleanDstMat.delete();
 
-    // Draw artwork at current position
+    // Draw artwork at current position with proper compositing
     if (artworkLoaded) {
+      warpCtx.globalCompositeOperation = 'source-over';
       warpCtx.drawImage(
         artworkCanvas,
         warpedArtworkPosition.x,
@@ -641,6 +678,7 @@ function redrawWarpedCanvas() {
         artworkCanvas.width,
         artworkCanvas.height
       );
+      warpCtx.globalCompositeOperation = 'source-over';
     }
   } catch (error) {
     console.error('Error in redrawWarpedCanvas:', error);
@@ -655,16 +693,18 @@ function updateTransformedArtwork() {
     let artworkPoints = null;
     let transformedArtworkPoints = null;
 
-    // First, restore the original background image
+    // First, restore the original background image with a clean state
+    ctx.globalCompositeOperation = 'source-over';
     ctx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
     ctx.drawImage(img, 0, 0);
 
-    // Get artwork corners in warped space
+    // Add padding to artwork corners to reduce edge artifacts
+    const padding = 2; // 2 pixels padding
     const artworkCorners = [
-      { x: warpedArtworkPosition.x, y: warpedArtworkPosition.y },
-      { x: warpedArtworkPosition.x + artworkCanvas.width, y: warpedArtworkPosition.y },
-      { x: warpedArtworkPosition.x + artworkCanvas.width, y: warpedArtworkPosition.y + artworkCanvas.height },
-      { x: warpedArtworkPosition.x, y: warpedArtworkPosition.y + artworkCanvas.height }
+      { x: warpedArtworkPosition.x - padding, y: warpedArtworkPosition.y - padding },
+      { x: warpedArtworkPosition.x + artworkCanvas.width + padding, y: warpedArtworkPosition.y - padding },
+      { x: warpedArtworkPosition.x + artworkCanvas.width + padding, y: warpedArtworkPosition.y + artworkCanvas.height + padding },
+      { x: warpedArtworkPosition.x - padding, y: warpedArtworkPosition.y + artworkCanvas.height + padding }
     ];
 
     // Create matrices
@@ -684,13 +724,12 @@ function updateTransformedArtwork() {
     if (transformedArtworkPoints && transformedArtworkPoints.rows > 0) {
       const points = transformedArtworkPoints.data32F;
 
-      // Redraw the corner points and rectangle if they exist
-      // Create matrices for the artwork transformation
+      // Create matrices for the artwork transformation with padding
       artworkSrcPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
-        0, 0,
-        artworkCanvas.width, 0,
-        artworkCanvas.width, artworkCanvas.height,
-        0, artworkCanvas.height
+        -padding, -padding,
+        artworkCanvas.width + padding, -padding,
+        artworkCanvas.width + padding, artworkCanvas.height + padding,
+        -padding, artworkCanvas.height + padding
       ]);
 
       artworkDstPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
@@ -700,55 +739,62 @@ function updateTransformedArtwork() {
         points[6], points[7]
       ]);
 
-
       // Create transformation matrix for the artwork
       let artworkTransformMatrix = cv.getPerspectiveTransform(artworkSrcPoints, artworkDstPoints);
 
       let artworkDstMat = new cv.Mat();
 
-      // Create size object for the destination
-      let dsize = new cv.Size(imageCanvas.width, imageCanvas.height);
+      // Create size object for the destination with padding
+      let dsize = new cv.Size(imageCanvas.width + padding * 2, imageCanvas.height + padding * 2);
 
-      // Create a temporary canvas for the artwork with transparency
+      // Create a temporary canvas for the artwork with transparency and padding
       let tempCanvas = document.createElement('canvas');
-      tempCanvas.width = imageCanvas.width;
-      tempCanvas.height = imageCanvas.height;
+      tempCanvas.width = imageCanvas.width + padding * 2;
+      tempCanvas.height = imageCanvas.height + padding * 2;
       let tempCtx = tempCanvas.getContext('2d');
 
       // Clear temp canvas with transparency
       tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+      tempCtx.globalAlpha = 1.0;
 
-      // Draw only the artwork onto the temp canvas
-      tempCtx.drawImage(artworkCanvas, 0, 0);
+      // Draw artwork onto the temp canvas with padding
+      tempCtx.drawImage(artworkCanvas, padding, padding);
 
       // Convert the temp canvas to an OpenCV matrix
       let tempMat = cv.imread(tempCanvas);
 
-      // Perform the perspective warp with transparent background
+      // Perform the perspective warp with improved settings
       cv.warpPerspective(
         tempMat,
         artworkDstMat,
         artworkTransformMatrix,
         dsize,
-        cv.INTER_LINEAR,
-        cv.BORDER_TRANSPARENT,
-        new cv.Scalar(0, 0, 0, 0)  // Fully transparent background
+        cv.INTER_CUBIC, // Use cubic interpolation
+        cv.BORDER_REPLICATE, // Replicate edge pixels
+        new cv.Scalar(0, 0, 0, 0)
       );
 
       // Create another temporary canvas for the final composition
       let finalTempCanvas = document.createElement('canvas');
       finalTempCanvas.width = imageCanvas.width;
       finalTempCanvas.height = imageCanvas.height;
+      let finalTempCtx = finalTempCanvas.getContext('2d');
+      
+      // Clear the final temp canvas
+      finalTempCtx.clearRect(0, 0, finalTempCanvas.width, finalTempCanvas.height);
 
       // Show the warped artwork on the temp canvas
       cv.imshow(finalTempCanvas, artworkDstMat);
 
-      // 3. Clear the main canvas and draw the composite
+      // Draw the composite with proper alpha blending
+      ctx.globalCompositeOperation = 'source-over';
       ctx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
       ctx.drawImage(img, 0, 0);
-      ctx.drawImage(finalTempCanvas, 0, 0);
+      ctx.drawImage(finalTempCanvas, -padding, -padding);
+
       // Clean up temporary canvases
       finalTempCanvas.remove();
+      tempCanvas.remove();
 
       // Update stored position for original canvas
       artworkPosition = {
@@ -756,10 +802,10 @@ function updateTransformedArtwork() {
         y: transformedArtworkPoints.data32F[1]
       };
 
+      // Clean up OpenCV resources
       artworkTransformMatrix.delete();
       tempMat.delete();
       artworkDstMat.delete();
-
     }
 
     // Clean up matrices
