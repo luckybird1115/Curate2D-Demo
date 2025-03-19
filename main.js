@@ -55,6 +55,9 @@ let dragTransformMatrix = null;
 // Add this variable at the top of your file
 let lastDragOperation = null;
 
+// Add these variables at the top with other global variables
+let dragOffset = { x: 0, y: 0 }; // Store the offset between click point and artwork top-left
+
 // Add this line after getting the warpedCanvas element
 warpedCanvas.style.display = 'none';
 
@@ -182,6 +185,22 @@ imageCanvas.addEventListener('mousedown', function (evt) {
   // Check if we're clicking on a warped artwork
   if (warpedArtwork && isPointInWarpedArtwork(x, y)) {
     isArtworkDragging = true;
+    
+    // Calculate offset between click point and artwork top-left corner
+    let clickPoint = cv.matFromArray(1, 1, cv.CV_32FC2, [x, y]);
+    let transformedClick = new cv.Mat();
+    
+    try {
+      cv.perspectiveTransform(clickPoint, transformedClick, M);
+      dragOffset = {
+        x: transformedClick.data32F[0] - warpedArtworkPosition.x,
+        y: transformedClick.data32F[1] - warpedArtworkPosition.y
+      };
+    } finally {
+      clickPoint.delete();
+      transformedClick.delete();
+    }
+    
     lastMousePos = { x, y };
     imageCanvas.style.cursor = 'grabbing';
     return;
@@ -209,7 +228,6 @@ imageCanvas.addEventListener('mousemove', function (evt) {
 
   // Handle artwork dragging
   if (isArtworkDragging && M) {
-    // Cancel any pending drag operation
     if (lastDragOperation) {
       cancelAnimationFrame(lastDragOperation);
       lastDragOperation = null;
@@ -219,23 +237,20 @@ imageCanvas.addEventListener('mousemove', function (evt) {
     let dstPoint = null;
 
     try {
-      // Create new matrices for this drag operation
       srcPoint = cv.matFromArray(1, 1, cv.CV_32FC2, [x, y]);
       dstPoint = new cv.Mat();
 
-      // Transform the point only if matrices are valid
       if (!srcPoint.empty() && M && !M.empty()) {
         cv.perspectiveTransform(srcPoint, dstPoint, M);
 
-        // Update position only if transformation was successful
         if (dstPoint && !dstPoint.empty()) {
           const newX = dstPoint.data32F[0];
           const newY = dstPoint.data32F[1];
 
-          // Only update if the new position is valid
           if (!isNaN(newX) && !isNaN(newY)) {
-            warpedArtworkPosition.x = newX;
-            warpedArtworkPosition.y = newY;
+            // Update position accounting for the drag offset
+            warpedArtworkPosition.x = newX - dragOffset.x;
+            warpedArtworkPosition.y = newY - dragOffset.y;
 
             lastDragOperation = requestAnimationFrame(() => {
               try {
@@ -253,13 +268,8 @@ imageCanvas.addEventListener('mousemove', function (evt) {
     } catch (error) {
       console.error('Error during drag operation:', error);
     } finally {
-      // Clean up matrices immediately after use
-      if (srcPoint && !srcPoint.deleted) {
-        srcPoint.delete();
-      }
-      if (dstPoint && !dstPoint.deleted) {
-        dstPoint.delete();
-      }
+      if (srcPoint && !srcPoint.deleted) srcPoint.delete();
+      if (dstPoint && !dstPoint.deleted) dstPoint.delete();
     }
     return;
   }
